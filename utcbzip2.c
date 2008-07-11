@@ -523,6 +523,14 @@ typedef struct {
    UChar len  [N_GROUPS][MAX_ALPHA_SIZE];
    Int32  code [N_GROUPS][MAX_ALPHA_SIZE];
    Int32  rfreq[N_GROUPS][MAX_ALPHA_SIZE];
+
+
+   UInt32 bsBuff;
+   Int32  bsLive;
+
+   UChar *bsBuffer;
+   UInt32 bsBufferSize;
+   UInt32 bsBufferLength;
 } BlockData;
 
 
@@ -801,6 +809,86 @@ void bsPutIntVS ( Int32 numBits, UInt32 c )
    bsW ( numBits, c );
 }
 
+/*---------------------------------------------*/
+void pbsNEEDW( BlockData *bd, Int32 nz )
+{                                             
+   UChar *tmp;
+   UInt32 newSize;
+
+   while (bd->bsLive >= 8) {                      
+      if (bd->bsBufferLength >= bd->bsBufferSize) {
+         newSize = bd->bsBufferSize * 2;
+         tmp = (UChar*)realloc(bd->bsBuffer, sizeof(UChar) * newSize);
+         bd->bsBuffer = tmp;
+         bd->bsBufferSize = newSize;
+      }
+
+      bd->bsBuffer[bd->bsBufferLength++] = (UChar)(bd->bsBuff >> 24);
+      bd->bsBuff <<= 8;                           
+      bd->bsLive -= 8;                            
+      bytesOut++;                             
+   }                                          
+}
+
+/*---------------------------------------------*/
+INLINE void pbsW ( BlockData *bd, Int32 n, UInt32 v )
+{
+   pbsNEEDW ( bd, n );
+   bd->bsBuff |= (v << (32 - bd->bsLive - n));
+   bd->bsLive += n;
+}
+
+/*---------------------------------------------*/
+void pbsPutUChar ( BlockData *bd, UChar c )
+{
+   pbsW( bd, 8, (UInt32)c );
+}
+
+/*---------------------------------------------*/
+void pbsPutUInt32 ( BlockData *bd, UInt32 u )
+{
+   pbsW ( bd, 8, (u >> 24) & 0xffL );
+   pbsW ( bd, 8, (u >> 16) & 0xffL );
+   pbsW ( bd, 8, (u >>  8) & 0xffL );
+   pbsW ( bd, 8,  u        & 0xffL );
+}
+
+/*---------------------------------------------*/
+void pbsPutInt32 ( BlockData *bd, Int32 c )
+{
+   pbsPutUInt32 ( bd, (UInt32)c );
+}
+
+/*---------------------------------------------*/
+void pbsPutIntVS ( BlockData *bd, Int32 numBits, UInt32 c )
+{
+   pbsW ( bd, numBits, c );
+}
+
+/*---------------------------------------------*/
+void pbsFlush( BlockData *bd )
+{
+   int i, len;
+
+   len = bd->bsBufferLength;
+   for (i=0; i<len; i++) {
+      bsPutUChar( bd->bsBuffer[i] );
+   }
+   bd->bsBufferLength = 0;
+
+   while (bd->bsLive > 8) {
+      bsPutUChar( (UChar)(bd->bsBuff >> 24) );
+      bd->bsBuff <<= 8;
+      bd->bsLive -= 8;
+      bytesOut++;
+   }
+
+   bd->bsBuff >>= (32 - bd->bsLive);
+   bsW( bd->bsLive, bd->bsBuff );
+
+}
+
+
 
 /*---------------------------------------------------*/
 /*--- Huffman coding low-level stuff              ---*/
@@ -1045,6 +1133,17 @@ void allocateCompressStructures ( BlockData *bd )
       Seems to improve compression speed by about 1%.
    --*/
    bd->szptr = (UInt16*)bd->zptr;
+
+   /*--
+     Bit string buffer
+   --*/
+   bd->bsBuffer = (UChar*)malloc(sizeof(UChar) * 8);
+   bd->bsBufferSize = 8;
+   bd->bsBufferLength = 0;
+
+   bd->bsBuff = 0;
+   bd->bsLive = 0;
+
 }
 
 
@@ -1408,12 +1507,12 @@ void sendMTFValues ( BlockData *bd )
      
       nBytes = bytesOut;
       for (i = 0; i < 16; i++)
-         if (inUse16[i]) bsW(1,1); else bsW(1,0);
+         if (inUse16[i]) pbsW(bd,1,1); else pbsW(bd,1,0);
 
       for (i = 0; i < 16; i++)
          if (inUse16[i])
             for (j = 0; j < 16; j++)
-               if (bd->inUse[i * 16 + j]) bsW(1,1); else bsW(1,0);
+               if (bd->inUse[i * 16 + j]) pbsW(bd,1,1); else pbsW(bd,1,0);
 
       if (verbosity >= 3) 
          fprintf ( stderr, "      bytes: mapping %d, ", bytesOut-nBytes );
@@ -1421,11 +1520,11 @@ void sendMTFValues ( BlockData *bd )
 
    /*--- Now the selectors. ---*/
    nBytes = bytesOut;
-   bsW ( 3, nGroups );
-   bsW ( 15, nSelectors );
+   pbsW ( bd, 3, nGroups );
+   pbsW ( bd, 15, nSelectors );
    for (i = 0; i < nSelectors; i++) { 
-      for (j = 0; j < bd->selectorMtf[i]; j++) bsW(1,1);
-      bsW(1,0);
+      for (j = 0; j < bd->selectorMtf[i]; j++) pbsW(bd,1,1);
+      pbsW(bd,1,0);
    }
    if (verbosity >= 3)
       fprintf ( stderr, "selectors %d, ", bytesOut-nBytes );
@@ -1435,11 +1534,11 @@ void sendMTFValues ( BlockData *bd )
 
    for (t = 0; t < nGroups; t++) {
       Int32 curr = bd->len[t][0];
-      bsW ( 5, curr );
+      pbsW ( bd, 5, curr );
       for (i = 0; i < alphaSize; i++) {
-         while (curr < bd->len[t][i]) { bsW(2,2); curr++; /* 10 */ };
-         while (curr > bd->len[t][i]) { bsW(2,3); curr--; /* 11 */ };
-         bsW ( 1, 0 );
+         while (curr < bd->len[t][i]) { pbsW(bd,2,2); curr++; /* 10 */ };
+         while (curr > bd->len[t][i]) { pbsW(bd,2,3); curr--; /* 11 */ };
+         pbsW ( bd, 1, 0 );
       }
    }
 
@@ -1458,7 +1557,7 @@ void sendMTFValues ( BlockData *bd )
          #if DEBUG
             assert (bd->selector[selCtr] < nGroups);
          #endif
-         bsW ( bd->len  [bd->selector[selCtr]] [bd->szptr[i]],
+         pbsW ( bd, bd->len  [bd->selector[selCtr]] [bd->szptr[i]],
                bd->code [bd->selector[selCtr]] [bd->szptr[i]] );
       }
 
@@ -1475,7 +1574,7 @@ void sendMTFValues ( BlockData *bd )
 /*---------------------------------------------*/
 void moveToFrontCodeAndSend ( BlockData *bd )
 {
-   bsPutIntVS ( 24, bd->origPtr );
+   pbsPutIntVS ( bd, 24, bd->origPtr );
    generateMTFValues( bd );
    sendMTFValues( bd );
 }
@@ -2761,21 +2860,23 @@ void compressStream ( FILE *stream, FILE *zStream )
         They are only important when trying to recover blocks from
         damaged files.
       --*/
-      bsPutUChar ( 0x31 ); bsPutUChar ( 0x41 );
-      bsPutUChar ( 0x59 ); bsPutUChar ( 0x26 );
-      bsPutUChar ( 0x53 ); bsPutUChar ( 0x59 );
+      pbsPutUChar ( bd, 0x31 ); pbsPutUChar ( bd, 0x41 );
+      pbsPutUChar ( bd, 0x59 ); pbsPutUChar ( bd, 0x26 );
+      pbsPutUChar ( bd, 0x53 ); pbsPutUChar ( bd, 0x59 );
 
       /*-- Now the block's CRC, so it is in a known place. --*/
-      bsPutUInt32 ( blockCRC );
+      pbsPutUInt32 ( bd, blockCRC );
 
       /*-- Now a single bit indicating randomisation. --*/
       if (bd->blockRandomised) {
-         bsW(1,1); nBlocksRandomised++;
+         pbsW(bd,1,1); nBlocksRandomised++;
       } else
-         bsW(1,0);
+         pbsW(bd,1,0);
 
       /*-- Finally, block's contents proper. --*/
       moveToFrontCodeAndSend ( bd );
+
+      pbsFlush(bd);
 
       ERROR_IF_NOT_ZERO ( ferror(zStream) );
    }
