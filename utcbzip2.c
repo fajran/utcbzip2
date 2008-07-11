@@ -373,31 +373,6 @@ void    compressedStreamEOF   ( void )           NORETURN;
 
 void*   myMalloc ( Int32 );
 
-typedef struct {
-   UChar    *block;    /*-- compress   --*/
-   UInt16   *quadrant; /*-- compress   --*/
-   Int32    *zptr;     /*-- compress   --*/ 
-   UInt16   *szptr;    /*-- overlays zptr ---*/
-   Int32    *ftab;     /*-- compress   --*/
-   Int32  last;
-   Int32  origPtr;
-   Int32  workDone;
-   Int32  workLimit;
-   Bool   blockRandomised;
-   Bool   firstAttempt;
-   Bool  inUse[256];
-   Int32 nInUse;
-   UChar seqToUnseq[256];
-   UChar unseqToSeq[256];
-   UChar selector   [MAX_SELECTORS];
-   UChar selectorMtf[MAX_SELECTORS];
-   Int32 nMTF;
-   Int32 mtfFreq[MAX_ALPHA_SIZE];
-   UChar len  [N_GROUPS][MAX_ALPHA_SIZE];
-   Int32  code [N_GROUPS][MAX_ALPHA_SIZE];
-   Int32  rfreq[N_GROUPS][MAX_ALPHA_SIZE];
-} BlockData;
-
 /*---------------------------------------------------*/
 /*--- Data decls for the front end                ---*/
 /*---------------------------------------------------*/
@@ -524,6 +499,31 @@ Int32 minLens[N_GROUPS];
 /*-- compress only --*/
 //Int32  utc_code [N_GROUPS][MAX_ALPHA_SIZE];
 //Int32  utc_rfreq[N_GROUPS][MAX_ALPHA_SIZE];
+
+typedef struct {
+   UChar    *block;    /*-- compress   --*/
+   UInt16   *quadrant; /*-- compress   --*/
+   Int32    *zptr;     /*-- compress   --*/ 
+   UInt16   *szptr;    /*-- overlays zptr ---*/
+   Int32    *ftab;     /*-- compress   --*/
+   Int32  last;
+   Int32  origPtr;
+   Int32  workDone;
+   Int32  workLimit;
+   Bool   blockRandomised;
+   Bool   firstAttempt;
+   Bool  inUse[256];
+   Int32 nInUse;
+   UChar seqToUnseq[256];
+   UChar unseqToSeq[256];
+   UChar selector   [MAX_SELECTORS];
+   UChar selectorMtf[MAX_SELECTORS];
+   Int32 nMTF;
+   Int32 mtfFreq[MAX_ALPHA_SIZE];
+   UChar len  [N_GROUPS][MAX_ALPHA_SIZE];
+   Int32  code [N_GROUPS][MAX_ALPHA_SIZE];
+   Int32  rfreq[N_GROUPS][MAX_ALPHA_SIZE];
+} BlockData;
 
 
 /*---------------------------------------------------*/
@@ -1124,7 +1124,7 @@ void generateMTFValues ( BlockData *bd )
    Int32  wr;
    Int32  EOB;
 
-   makeMaps();
+   makeMaps( bd );
    EOB = bd->nInUse+1;
 
    for (i = 0; i <= EOB; i++) bd->mtfFreq[i] = 0;
@@ -1476,8 +1476,8 @@ void sendMTFValues ( BlockData *bd )
 void moveToFrontCodeAndSend ( BlockData *bd )
 {
    bsPutIntVS ( 24, bd->origPtr );
-   generateMTFValues();
-   sendMTFValues();
+   generateMTFValues( bd );
+   sendMTFValues( bd );
 }
 
 
@@ -1501,7 +1501,7 @@ void recvDecodingTables ( BlockData *bd )
          for (j = 0; j < 16; j++)
             if (bsR(1) == 1) bd->inUse[i * 16 + j] = True;
 
-   makeMaps();
+   makeMaps( bd );
    alphaSize = bd->nInUse+2;
 
    /*--- Now the selectors ---*/
@@ -1585,7 +1585,7 @@ void getAndMoveToFrontDecode ( BlockData *bd )
    limitLast = 100000 * blockSize100k;
    bd->origPtr   = bsGetIntVS ( 24 );
 
-   recvDecodingTables();
+   recvDecodingTables( bd );
    EOB      = bd->nInUse+1;
    groupNo  = -1;
    groupPos = 0;
@@ -1815,7 +1815,7 @@ void simpleSort ( BlockData *bd, Int32 lo, Int32 hi, Int32 d )
          if (i > hi) break;
          v = bd->zptr[i];
          j = i;
-         while ( fullGtU ( bd->zptr[j-h]+d, v+d ) ) {
+         while ( fullGtU ( bd, bd->zptr[j-h]+d, v+d ) ) {
             bd->zptr[j] = bd->zptr[j-h];
             j = j - h;
             if (j <= (lo + h - 1)) break;
@@ -1827,7 +1827,7 @@ void simpleSort ( BlockData *bd, Int32 lo, Int32 hi, Int32 d )
          if (i > hi) break;
          v = bd->zptr[i];
          j = i;
-         while ( fullGtU ( bd->zptr[j-h]+d, v+d ) ) {
+         while ( fullGtU ( bd, bd->zptr[j-h]+d, v+d ) ) {
             bd->zptr[j] = bd->zptr[j-h];
             j = j - h;
             if (j <= (lo + h - 1)) break;
@@ -1839,7 +1839,7 @@ void simpleSort ( BlockData *bd, Int32 lo, Int32 hi, Int32 d )
          if (i > hi) break;
          v = bd->zptr[i];
          j = i;
-         while ( fullGtU ( bd->zptr[j-h]+d, v+d ) ) {
+         while ( fullGtU ( bd, bd->zptr[j-h]+d, v+d ) ) {
             bd->zptr[j] = bd->zptr[j-h];
             j = j - h;
             if (j <= (lo + h - 1)) break;
@@ -1929,7 +1929,7 @@ void qSort3 ( BlockData *bd, Int32 loSt, Int32 hiSt, Int32 dSt )
       pop ( lo, hi, d );
 
       if (hi - lo < SMALL_THRESH || d > DEPTH_THRESH) {
-         simpleSort ( lo, hi, d );
+         simpleSort ( bd, lo, hi, d );
          if (bd->workDone > bd->workLimit && bd->firstAttempt) return;
          continue;
       }
@@ -1968,8 +1968,8 @@ void qSort3 ( BlockData *bd, Int32 loSt, Int32 hiSt, Int32 dSt )
          continue;
       }
 
-      n = min(ltLo-lo, unLo-ltLo); vswap(lo, unLo-n, n);
-      m = min(hi-gtHi, gtHi-unHi); vswap(unLo, hi-m+1, m);
+      n = min(ltLo-lo, unLo-ltLo); vswap(bd, lo, unLo-n, n);
+      m = min(hi-gtHi, gtHi-unHi); vswap(bd, unLo, hi-m+1, m);
 
       n = lo + unLo - ltLo - 1;
       m = hi - (gtHi - unHi) + 1;
@@ -2021,7 +2021,7 @@ void sortIt ( BlockData *bd )
       for (i = 0; i <= bd->last; i++) bd->zptr[i] = i;
       bd->firstAttempt = False;
       bd->workDone = bd->workLimit = 0;
-      simpleSort ( 0, bd->last, 0 );
+      simpleSort ( bd, 0, bd->last, 0 );
       if (verbosity >= 4) fprintf ( stderr, "        simpleSort done.\n" );
 
    } else {
@@ -2110,7 +2110,7 @@ void sortIt ( BlockData *bd )
                      fprintf ( stderr,
                                "        qsort [0x%x, 0x%x]   done %d   this %d\n",
                                ss, j, numQSorted, hi - lo + 1 );
-                  qSort3 ( lo, hi, 2 );
+                  qSort3 ( bd, lo, hi, 2 );
                   numQSorted += ( hi - lo + 1 );
                   if (bd->workDone > bd->workLimit && bd->firstAttempt) return;
                }
@@ -2279,7 +2279,7 @@ void doReversibleTransformation ( BlockData *bd )
    bd->blockRandomised = False;
    bd->firstAttempt    = True;
 
-   sortIt ();
+   sortIt ( bd );
 
    if (verbosity >= 3)
       fprintf ( stderr, "      %d work, %d block, ratio %5.2f\n",
@@ -2288,11 +2288,11 @@ void doReversibleTransformation ( BlockData *bd )
    if (bd->workDone > bd->workLimit && bd->firstAttempt) {
       if (verbosity >= 2)
          fprintf ( stderr, "    sorting aborted; randomising block\n" );
-      randomiseBlock ();
+      randomiseBlock ( bd );
       bd->workLimit = bd->workDone = 0;
       bd->blockRandomised = True;
       bd->firstAttempt = False;
-      sortIt();
+      sortIt( bd );
       if (verbosity >= 3)
          fprintf ( stderr, "      %d work, %d block, ratio %f\n",
                            bd->workDone, bd->last, (float)bd->workDone / (float)(bd->last) );
@@ -2698,6 +2698,7 @@ void compressStream ( FILE *stream, FILE *zStream )
    IntNative  retVal;
    UInt32     blockCRC, combinedCRC;
    Int32      blockNo;
+   BlockData *bd;
 
    blockNo  = 0;
    bytesIn  = 0;
@@ -2726,10 +2727,13 @@ void compressStream ( FILE *stream, FILE *zStream )
    if (verbosity >= 2) fprintf ( stderr, "\n" );
 
    while (True) {
+      
+      bd = (BlockData*)malloc(sizeof(BlockData));
+      allocateCompressStructures(bd);
 
       blockNo++;
       initialiseCRC ();
-      loadAndRLEsource ( stream );
+      loadAndRLEsource ( bd, stream );
       ERROR_IF_NOT_ZERO ( ferror(stream) );
       if (bd->last == -1) break;
 
@@ -2742,7 +2746,7 @@ void compressStream ( FILE *stream, FILE *zStream )
                            blockNo, blockCRC, combinedCRC, bd->last+1 );
 
       /*-- sort the block and establish posn of original string --*/
-      doReversibleTransformation ();
+      doReversibleTransformation ( bd );
 
       /*--
         A 6-byte block header, the value chosen arbitrarily
@@ -2771,7 +2775,7 @@ void compressStream ( FILE *stream, FILE *zStream )
          bsW(1,0);
 
       /*-- Finally, block's contents proper. --*/
-      moveToFrontCodeAndSend ();
+      moveToFrontCodeAndSend ( bd );
 
       ERROR_IF_NOT_ZERO ( ferror(zStream) );
    }
@@ -2835,6 +2839,8 @@ Bool uncompressStream ( FILE *zStream, FILE *stream )
    Int32      currBlockNo;
    IntNative  retVal;
 
+   BlockData *bd;
+
    SET_BINARY_MODE(stream);
    SET_BINARY_MODE(zStream);
 
@@ -2892,15 +2898,15 @@ Bool uncompressStream ( FILE *zStream, FILE *stream )
       currBlockNo++;
       if (verbosity >= 2)
          fprintf ( stderr, "[%d: huff+mtf ", currBlockNo );
-      getAndMoveToFrontDecode ();
+      getAndMoveToFrontDecode ( bd );
       ERROR_IF_NOT_ZERO ( ferror(zStream) );
 
       initialiseCRC();
       if (verbosity >= 2) fprintf ( stderr, "rt+rld" );
       if (smallMode)
-         undoReversibleTransformation_small ( stream );
+         undoReversibleTransformation_small ( bd, stream );
          else
-         undoReversibleTransformation_fast  ( stream );
+         undoReversibleTransformation_fast  ( bd, stream );
 
       ERROR_IF_NOT_ZERO ( ferror(stream) );
 
@@ -2953,6 +2959,8 @@ Bool testStream ( FILE *zStream )
    UInt32     computedBlockCRC, computedCombinedCRC;
    Int32      currBlockNo;
    IntNative  retVal;
+
+   BlockData *bd;
 
    SET_BINARY_MODE(zStream);
    ERROR_IF_NOT_ZERO ( ferror(zStream) );
@@ -3012,12 +3020,12 @@ Bool testStream ( FILE *zStream )
 
       if (verbosity >= 2)
          fprintf ( stderr, "    block [%d: huff+mtf ", currBlockNo );
-      getAndMoveToFrontDecode ();
+      getAndMoveToFrontDecode ( bd );
       ERROR_IF_NOT_ZERO ( ferror(zStream) );
 
       initialiseCRC();
       if (verbosity >= 2) fprintf ( stderr, "rt+rld" );
-      undoReversibleTransformation_small ( NULL );
+      undoReversibleTransformation_small ( bd, NULL );
 
       computedBlockCRC = getFinalCRC();
       if (verbosity >= 3)
