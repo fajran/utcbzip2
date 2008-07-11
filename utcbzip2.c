@@ -2844,6 +2844,8 @@ void compressStream ( FILE *stream, FILE *zStream )
          fprintf ( stderr, "    block %d: crc = 0x%8x, combined CRC = 0x%8x, size = %d",
                            blockNo, blockCRC, combinedCRC, bd->last+1 );
 
+      /*== Parallel Begin ==*/
+
       /*-- sort the block and establish posn of original string --*/
       doReversibleTransformation ( bd );
 
@@ -2875,6 +2877,8 @@ void compressStream ( FILE *stream, FILE *zStream )
 
       /*-- Finally, block's contents proper. --*/
       moveToFrontCodeAndSend ( bd );
+
+      /*== Parallel End ==*/
 
       pbsFlush(bd);
 
