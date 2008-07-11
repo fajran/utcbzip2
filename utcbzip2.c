@@ -373,7 +373,30 @@ void    compressedStreamEOF   ( void )           NORETURN;
 
 void*   myMalloc ( Int32 );
 
-
+typedef struct {
+   UChar    *block;    /*-- compress   --*/
+   UInt16   *quadrant; /*-- compress   --*/
+   Int32    *zptr;     /*-- compress   --*/ 
+   UInt16   *szptr;    /*-- overlays zptr ---*/
+   Int32    *ftab;     /*-- compress   --*/
+   Int32  last;
+   Int32  origPtr;
+   Int32  workDone;
+   Int32  workLimit;
+   Bool   blockRandomised;
+   Bool   firstAttempt;
+   Bool  inUse[256];
+   Int32 nInUse;
+   UChar seqToUnseq[256];
+   UChar unseqToSeq[256];
+   UChar selector   [MAX_SELECTORS];
+   UChar selectorMtf[MAX_SELECTORS];
+   Int32 nMTF;
+   Int32 mtfFreq[MAX_ALPHA_SIZE];
+   UChar len  [N_GROUPS][MAX_ALPHA_SIZE];
+   Int32  code [N_GROUPS][MAX_ALPHA_SIZE];
+   Int32  rfreq[N_GROUPS][MAX_ALPHA_SIZE];
+} BlockData;
 
 /*---------------------------------------------------*/
 /*--- Data decls for the front end                ---*/
@@ -406,11 +429,11 @@ void*   myMalloc ( Int32 );
   The structures are always set to be suitable
   for a block of size 100000 * blockSize100k.
 --*/
-UChar    *utc_block;    /*-- compress   --*/
-UInt16   *utc_quadrant; /*-- compress   --*/
-Int32    *utc_zptr;     /*-- compress   --*/ 
-UInt16   *utc_szptr;    /*-- overlays zptr ---*/
-Int32    *utc_ftab;     /*-- compress   --*/
+//UChar    *utc_block;    /*-- compress   --*/
+//UInt16   *utc_quadrant; /*-- compress   --*/
+//Int32    *utc_zptr;     /*-- compress   --*/ 
+//UInt16   *utc_szptr;    /*-- overlays zptr ---*/
+//Int32    *utc_ftab;     /*-- compress   --*/
 
 UInt16   *ll16;     /*-- small decompress --*/
 UChar    *ll4;      /*-- small decompress --*/
@@ -430,13 +453,13 @@ Int32   unzftab[256];
    index of the last char in the block, so
    the block size == last + 1.
 --*/
-Int32  utc_last;
+//Int32  utc_last;
 
 
 /*--
   index in zptr[] of original string after sorting.
 --*/
-Int32  utc_origPtr;
+//Int32  utc_origPtr;
 
 
 /*--
@@ -452,12 +475,12 @@ Int32  blockSize100k;
   slightly, and try again.
 --*/
 
-Int32  utc_workFactor;
-Int32  utc_workDone;
-Int32  utc_workLimit;
-Bool   utc_blockRandomised;
-Bool   utc_firstAttempt;
-Int32  utc_nBlocksRandomised;
+Int32  workFactor;
+//Int32  utc_workDone;
+//Int32  utc_workLimit;
+//Bool   utc_blockRandomised;
+//Bool   utc_firstAttempt;
+Int32  nBlocksRandomised;
 
 
 
@@ -477,20 +500,20 @@ Int32  utc_nBlocksRandomised;
 
 #define MAX_SELECTORS (2 + (900000 / G_SIZE))
 
-Bool  utc_inUse[256];
-Int32 utc_nInUse;
+//Bool  utc_inUse[256];
+//Int32 utc_nInUse;
 
-UChar utc_seqToUnseq[256];
-UChar utc_unseqToSeq[256];
+//UChar utc_seqToUnseq[256];
+//UChar utc_unseqToSeq[256];
 
-UChar utc_selector   [MAX_SELECTORS];
-UChar utc_selectorMtf[MAX_SELECTORS];
+//UChar utc_selector   [MAX_SELECTORS];
+//UChar utc_selectorMtf[MAX_SELECTORS];
 
-Int32 utc_nMTF;
+//Int32 utc_nMTF;
 
-Int32 utc_mtfFreq[MAX_ALPHA_SIZE];
+//Int32 utc_mtfFreq[MAX_ALPHA_SIZE];
 
-UChar utc_len  [N_GROUPS][MAX_ALPHA_SIZE];
+//UChar utc_len  [N_GROUPS][MAX_ALPHA_SIZE];
 
 /*-- decompress only --*/
 Int32 limit  [N_GROUPS][MAX_ALPHA_SIZE];
@@ -499,8 +522,8 @@ Int32 perm   [N_GROUPS][MAX_ALPHA_SIZE];
 Int32 minLens[N_GROUPS];
 
 /*-- compress only --*/
-Int32  utc_code [N_GROUPS][MAX_ALPHA_SIZE];
-Int32  utc_rfreq[N_GROUPS][MAX_ALPHA_SIZE];
+//Int32  utc_code [N_GROUPS][MAX_ALPHA_SIZE];
+//Int32  utc_rfreq[N_GROUPS][MAX_ALPHA_SIZE];
 
 
 /*---------------------------------------------------*/
@@ -985,16 +1008,16 @@ void hbCreateDecodeTables ( Int32 *limit,
 
 
 /*---------------------------------------------*/
-void allocateCompressStructures ( void )
+void allocateCompressStructures ( BlockData *bd )
 {
    Int32 n  = 100000 * blockSize100k;
-   utc_block    = malloc ( (n + 1 + NUM_OVERSHOOT_BYTES) * sizeof(UChar) );
-   utc_quadrant = malloc ( (n     + NUM_OVERSHOOT_BYTES) * sizeof(Int16) );
-   utc_zptr     = malloc ( n                             * sizeof(Int32) );
-   utc_ftab     = malloc ( 65537                         * sizeof(Int32) );
+   bd->block    = malloc ( (n + 1 + NUM_OVERSHOOT_BYTES) * sizeof(UChar) );
+   bd->quadrant = malloc ( (n     + NUM_OVERSHOOT_BYTES) * sizeof(Int16) );
+   bd->zptr     = malloc ( n                             * sizeof(Int32) );
+   bd->ftab     = malloc ( 65537                         * sizeof(Int32) );
 
-   if (utc_block == NULL || utc_quadrant == NULL ||
-       utc_zptr == NULL  || utc_ftab == NULL) {
+   if (bd->block == NULL || bd->quadrant == NULL ||
+       bd->zptr == NULL  || bd->ftab == NULL) {
       Int32 totalDraw
          = (n + 1 + NUM_OVERSHOOT_BYTES) * sizeof(UChar) +
            (n     + NUM_OVERSHOOT_BYTES) * sizeof(Int16) +
@@ -1009,7 +1032,7 @@ void allocateCompressStructures ( void )
       -1 to n + NUM_OVERSHOOT_BYTES - 1
       inclusive.
    --*/
-   utc_block++;
+   bd->block++;
 
    /*--
       The back end needs a place to store the MTF values
@@ -1021,7 +1044,7 @@ void allocateCompressStructures ( void )
       of the MTF values when calculating coding tables.
       Seems to improve compression speed by about 1%.
    --*/
-   utc_szptr = (UInt16*)utc_zptr;
+   bd->szptr = (UInt16*)bd->zptr;
 }
 
 
@@ -1077,21 +1100,21 @@ void setDecompressStructureSizes ( Int32 newSize100k )
 /*---------------------------------------------------*/
 
 /*---------------------------------------------*/
-void makeMaps ( void )
+void makeMaps ( BlockData *bd )
 {
    Int32 i;
-   utc_nInUse = 0;
+   bd->nInUse = 0;
    for (i = 0; i < 256; i++)
-      if (utc_inUse[i]) {
-         utc_seqToUnseq[utc_nInUse] = i;
-         utc_unseqToSeq[i] = utc_nInUse;
-         utc_nInUse++;
+      if (bd->inUse[i]) {
+         bd->seqToUnseq[bd->nInUse] = i;
+         bd->unseqToSeq[i] = bd->nInUse;
+         bd->nInUse++;
       }
 }
 
 
 /*---------------------------------------------*/
-void generateMTFValues ( void )
+void generateMTFValues ( BlockData *bd )
 {
    UChar  yy[256];
    Int32  i, j;
@@ -1102,25 +1125,25 @@ void generateMTFValues ( void )
    Int32  EOB;
 
    makeMaps();
-   EOB = utc_nInUse+1;
+   EOB = bd->nInUse+1;
 
-   for (i = 0; i <= EOB; i++) utc_mtfFreq[i] = 0;
+   for (i = 0; i <= EOB; i++) bd->mtfFreq[i] = 0;
 
    wr = 0;
    zPend = 0;
-   for (i = 0; i < utc_nInUse; i++) yy[i] = (UChar) i;
+   for (i = 0; i < bd->nInUse; i++) yy[i] = (UChar) i;
    
 
-   for (i = 0; i <= utc_last; i++) {
+   for (i = 0; i <= bd->last; i++) {
       UChar ll_i;
 
       #if DEBUG
          assert (wr <= i);
       #endif
 
-      ll_i = utc_unseqToSeq[utc_block[utc_zptr[i] - 1]];
+      ll_i = bd->unseqToSeq[bd->block[bd->zptr[i] - 1]];
       #if DEBUG
-         assert (ll_i < utc_nInUse);
+         assert (ll_i < bd->nInUse);
       #endif
 
       j = 0;
@@ -1140,15 +1163,15 @@ void generateMTFValues ( void )
             zPend--;
             while (True) {
                switch (zPend % 2) {
-                  case 0: utc_szptr[wr] = RUNA; wr++; utc_mtfFreq[RUNA]++; break;
-                  case 1: utc_szptr[wr] = RUNB; wr++; utc_mtfFreq[RUNB]++; break;
+                  case 0: bd->szptr[wr] = RUNA; wr++; bd->mtfFreq[RUNA]++; break;
+                  case 1: bd->szptr[wr] = RUNB; wr++; bd->mtfFreq[RUNB]++; break;
                };
                if (zPend < 2) break;
                zPend = (zPend - 2) / 2;
             };
             zPend = 0;
          }
-         utc_szptr[wr] = j+1; wr++; utc_mtfFreq[j+1]++;
+         bd->szptr[wr] = j+1; wr++; bd->mtfFreq[j+1]++;
       }
    }
 
@@ -1156,17 +1179,17 @@ void generateMTFValues ( void )
       zPend--;
       while (True) {
          switch (zPend % 2) {
-            case 0:  utc_szptr[wr] = RUNA; wr++; utc_mtfFreq[RUNA]++; break;
-            case 1:  utc_szptr[wr] = RUNB; wr++; utc_mtfFreq[RUNB]++; break;
+            case 0:  bd->szptr[wr] = RUNA; wr++; bd->mtfFreq[RUNA]++; break;
+            case 1:  bd->szptr[wr] = RUNB; wr++; bd->mtfFreq[RUNB]++; break;
          };
          if (zPend < 2) break;
          zPend = (zPend - 2) / 2;
       };
    }
 
-   utc_szptr[wr] = EOB; wr++; utc_mtfFreq[EOB]++;
+   bd->szptr[wr] = EOB; wr++; bd->mtfFreq[EOB]++;
 
-   utc_nMTF = wr;
+   bd->nMTF = wr;
 }
 
 
@@ -1174,7 +1197,7 @@ void generateMTFValues ( void )
 #define LESSER_ICOST  0
 #define GREATER_ICOST 15
 
-void sendMTFValues ( void )
+void sendMTFValues ( BlockData *bd )
 {
    Int32 v, t, i, j, gs, ge, totc, bt, bc, iter;
    Int32 nSelectors, alphaSize, minLen, maxLen, selCtr;
@@ -1197,17 +1220,17 @@ void sendMTFValues ( void )
    if (verbosity >= 3)
       fprintf ( stderr, 
                 "      %d in block, %d after MTF & 1-2 coding, %d+2 syms in use\n", 
-                utc_last+1, utc_nMTF, utc_nInUse );
+                bd->last+1, bd->nMTF, bd->nInUse );
 
-   alphaSize = utc_nInUse+2;
+   alphaSize = bd->nInUse+2;
    for (t = 0; t < N_GROUPS; t++)
       for (v = 0; v < alphaSize; v++)
-         utc_len[t][v] = GREATER_ICOST;
+         bd->len[t][v] = GREATER_ICOST;
 
    /*--- Decide how many coding tables to use ---*/
-   if (utc_nMTF <= 0) panic ( "sendMTFValues(0)" );
-   if (utc_nMTF < 200) nGroups = 2; else
-   if (utc_nMTF < 800) nGroups = 4; else
+   if (bd->nMTF <= 0) panic ( "sendMTFValues(0)" );
+   if (bd->nMTF < 200) nGroups = 2; else
+   if (bd->nMTF < 800) nGroups = 4; else
                    nGroups = 6;
 
    /*--- Generate an initial set of coding tables ---*/
@@ -1215,7 +1238,7 @@ void sendMTFValues ( void )
       Int32 nPart, remF, tFreq, aFreq;
 
       nPart = nGroups;
-      remF  = utc_nMTF;
+      remF  = bd->nMTF;
       gs = 0;
       while (nPart > 0) {
          tFreq = remF / nPart;
@@ -1223,13 +1246,13 @@ void sendMTFValues ( void )
          aFreq = 0;
          while (aFreq < tFreq && ge < alphaSize-1) {
             ge++;
-            aFreq += utc_mtfFreq[ge];
+            aFreq += bd->mtfFreq[ge];
          }
 
          if (ge > gs 
              && nPart != nGroups && nPart != 1 
              && ((nGroups-nPart) % 2 == 1)) {
-            aFreq -= utc_mtfFreq[ge];
+            aFreq -= bd->mtfFreq[ge];
             ge--;
          }
 
@@ -1237,12 +1260,12 @@ void sendMTFValues ( void )
             fprintf ( stderr, 
                       "      initial group %d, [%d .. %d], has %d syms (%4.1f%%)\n",
                               nPart, gs, ge, aFreq, 
-                              (100.0 * (float)aFreq) / (float)utc_nMTF );
+                              (100.0 * (float)aFreq) / (float)bd->nMTF );
  
          for (v = 0; v < alphaSize; v++)
             if (v >= gs && v <= ge) 
-               utc_len[nPart-1][v] = LESSER_ICOST; else
-               utc_len[nPart-1][v] = GREATER_ICOST;
+               bd->len[nPart-1][v] = LESSER_ICOST; else
+               bd->len[nPart-1][v] = GREATER_ICOST;
  
          nPart--;
          gs = ge+1;
@@ -1259,7 +1282,7 @@ void sendMTFValues ( void )
 
       for (t = 0; t < nGroups; t++)
          for (v = 0; v < alphaSize; v++)
-            utc_rfreq[t][v] = 0;
+            bd->rfreq[t][v] = 0;
 
       nSelectors = 0;
       totc = 0;
@@ -1267,9 +1290,9 @@ void sendMTFValues ( void )
       while (True) {
 
          /*--- Set group start & end marks. --*/
-         if (gs >= utc_nMTF) break;
+         if (gs >= bd->nMTF) break;
          ge = gs + G_SIZE - 1; 
-         if (ge >= utc_nMTF) ge = utc_nMTF-1;
+         if (ge >= bd->nMTF) ge = bd->nMTF-1;
 
          /*-- 
             Calculate the cost of this group as coded
@@ -1281,20 +1304,20 @@ void sendMTFValues ( void )
             register UInt16 cost0, cost1, cost2, cost3, cost4, cost5;
             cost0 = cost1 = cost2 = cost3 = cost4 = cost5 = 0;
             for (i = gs; i <= ge; i++) { 
-               UInt16 icv = utc_szptr[i];
-               cost0 += utc_len[0][icv];
-               cost1 += utc_len[1][icv];
-               cost2 += utc_len[2][icv];
-               cost3 += utc_len[3][icv];
-               cost4 += utc_len[4][icv];
-               cost5 += utc_len[5][icv];
+               UInt16 icv = bd->szptr[i];
+               cost0 += bd->len[0][icv];
+               cost1 += bd->len[1][icv];
+               cost2 += bd->len[2][icv];
+               cost3 += bd->len[3][icv];
+               cost4 += bd->len[4][icv];
+               cost5 += bd->len[5][icv];
             }
             cost[0] = cost0; cost[1] = cost1; cost[2] = cost2;
             cost[3] = cost3; cost[4] = cost4; cost[5] = cost5;
          } else {
             for (i = gs; i <= ge; i++) { 
-               UInt16 icv = utc_szptr[i];
-               for (t = 0; t < nGroups; t++) cost[t] += utc_len[t][icv];
+               UInt16 icv = bd->szptr[i];
+               for (t = 0; t < nGroups; t++) cost[t] += bd->len[t][icv];
             }
          }
  
@@ -1307,14 +1330,14 @@ void sendMTFValues ( void )
             if (cost[t] < bc) { bc = cost[t]; bt = t; };
          totc += bc;
          fave[bt]++;
-         utc_selector[nSelectors] = bt;
+         bd->selector[nSelectors] = bt;
          nSelectors++;
 
          /*-- 
             Increment the symbol frequencies for the selected table.
           --*/
          for (i = gs; i <= ge; i++)
-            utc_rfreq[bt][ utc_szptr[i] ]++;
+            bd->rfreq[bt][ bd->szptr[i] ]++;
 
          gs = ge+1;
       }
@@ -1331,7 +1354,7 @@ void sendMTFValues ( void )
         Recompute the tables based on the accumulated frequencies.
       --*/
       for (t = 0; t < nGroups; t++)
-         hbMakeCodeLengths ( &utc_len[t][0], &utc_rfreq[t][0], alphaSize, 20 );
+         hbMakeCodeLengths ( &bd->len[t][0], &bd->rfreq[t][0], alphaSize, 20 );
    }
 
 
@@ -1346,7 +1369,7 @@ void sendMTFValues ( void )
       UChar pos[N_GROUPS], ll_i, tmp2, tmp;
       for (i = 0; i < nGroups; i++) pos[i] = i;
       for (i = 0; i < nSelectors; i++) {
-         ll_i = utc_selector[i];
+         ll_i = bd->selector[i];
          j = 0;
          tmp = pos[j];
          while ( ll_i != tmp ) {
@@ -1356,7 +1379,7 @@ void sendMTFValues ( void )
             pos[j] = tmp2;
          };
          pos[0] = tmp;
-         utc_selectorMtf[i] = j;
+         bd->selectorMtf[i] = j;
       }
    };
 
@@ -1365,12 +1388,12 @@ void sendMTFValues ( void )
       minLen = 32;
       maxLen = 0;
       for (i = 0; i < alphaSize; i++) {
-         if (utc_len[t][i] > maxLen) maxLen = utc_len[t][i];
-         if (utc_len[t][i] < minLen) minLen = utc_len[t][i];
+         if (bd->len[t][i] > maxLen) maxLen = bd->len[t][i];
+         if (bd->len[t][i] < minLen) minLen = bd->len[t][i];
       }
       if (maxLen > 20) panic ( "sendMTFValues(3)" );
       if (minLen < 1)  panic ( "sendMTFValues(4)" );
-      hbAssignCodes ( &utc_code[t][0], &utc_len[t][0], 
+      hbAssignCodes ( &bd->code[t][0], &bd->len[t][0], 
                       minLen, maxLen, alphaSize );
    }
 
@@ -1380,7 +1403,7 @@ void sendMTFValues ( void )
       for (i = 0; i < 16; i++) {
           inUse16[i] = False;
           for (j = 0; j < 16; j++)
-             if (utc_inUse[i * 16 + j]) inUse16[i] = True;
+             if (bd->inUse[i * 16 + j]) inUse16[i] = True;
       }
      
       nBytes = bytesOut;
@@ -1390,7 +1413,7 @@ void sendMTFValues ( void )
       for (i = 0; i < 16; i++)
          if (inUse16[i])
             for (j = 0; j < 16; j++)
-               if (utc_inUse[i * 16 + j]) bsW(1,1); else bsW(1,0);
+               if (bd->inUse[i * 16 + j]) bsW(1,1); else bsW(1,0);
 
       if (verbosity >= 3) 
          fprintf ( stderr, "      bytes: mapping %d, ", bytesOut-nBytes );
@@ -1401,7 +1424,7 @@ void sendMTFValues ( void )
    bsW ( 3, nGroups );
    bsW ( 15, nSelectors );
    for (i = 0; i < nSelectors; i++) { 
-      for (j = 0; j < utc_selectorMtf[i]; j++) bsW(1,1);
+      for (j = 0; j < bd->selectorMtf[i]; j++) bsW(1,1);
       bsW(1,0);
    }
    if (verbosity >= 3)
@@ -1411,11 +1434,11 @@ void sendMTFValues ( void )
    nBytes = bytesOut;
 
    for (t = 0; t < nGroups; t++) {
-      Int32 curr = utc_len[t][0];
+      Int32 curr = bd->len[t][0];
       bsW ( 5, curr );
       for (i = 0; i < alphaSize; i++) {
-         while (curr < utc_len[t][i]) { bsW(2,2); curr++; /* 10 */ };
-         while (curr > utc_len[t][i]) { bsW(2,3); curr--; /* 11 */ };
+         while (curr < bd->len[t][i]) { bsW(2,2); curr++; /* 10 */ };
+         while (curr > bd->len[t][i]) { bsW(2,3); curr--; /* 11 */ };
          bsW ( 1, 0 );
       }
    }
@@ -1428,15 +1451,15 @@ void sendMTFValues ( void )
    selCtr = 0;
    gs = 0;
    while (True) {
-      if (gs >= utc_nMTF) break;
+      if (gs >= bd->nMTF) break;
       ge = gs + G_SIZE - 1; 
-      if (ge >= utc_nMTF) ge = utc_nMTF-1;
+      if (ge >= bd->nMTF) ge = bd->nMTF-1;
       for (i = gs; i <= ge; i++) { 
          #if DEBUG
-            assert (utc_selector[selCtr] < nGroups);
+            assert (bd->selector[selCtr] < nGroups);
          #endif
-         bsW ( utc_len  [utc_selector[selCtr]] [utc_szptr[i]],
-               utc_code [utc_selector[selCtr]] [utc_szptr[i]] );
+         bsW ( bd->len  [bd->selector[selCtr]] [bd->szptr[i]],
+               bd->code [bd->selector[selCtr]] [bd->szptr[i]] );
       }
 
       gs = ge+1;
@@ -1450,16 +1473,16 @@ void sendMTFValues ( void )
 
 
 /*---------------------------------------------*/
-void moveToFrontCodeAndSend ( void )
+void moveToFrontCodeAndSend ( BlockData *bd )
 {
-   bsPutIntVS ( 24, utc_origPtr );
+   bsPutIntVS ( 24, bd->origPtr );
    generateMTFValues();
    sendMTFValues();
 }
 
 
 /*---------------------------------------------*/
-void recvDecodingTables ( void )
+void recvDecodingTables ( BlockData *bd )
 {
    Int32 i, j, t, nGroups, nSelectors, alphaSize;
    Int32 minLen, maxLen;
@@ -1471,15 +1494,15 @@ void recvDecodingTables ( void )
          inUse16[i] = True; else 
          inUse16[i] = False;
 
-   for (i = 0; i < 256; i++) utc_inUse[i] = False;
+   for (i = 0; i < 256; i++) bd->inUse[i] = False;
 
    for (i = 0; i < 16; i++)
       if (inUse16[i])
          for (j = 0; j < 16; j++)
-            if (bsR(1) == 1) utc_inUse[i * 16 + j] = True;
+            if (bsR(1) == 1) bd->inUse[i * 16 + j] = True;
 
    makeMaps();
-   alphaSize = utc_nInUse+2;
+   alphaSize = bd->nInUse+2;
 
    /*--- Now the selectors ---*/
    nGroups = bsR ( 3 );
@@ -1487,7 +1510,7 @@ void recvDecodingTables ( void )
    for (i = 0; i < nSelectors; i++) {
       j = 0;
       while (bsR(1) == 1) j++;
-      utc_selectorMtf[i] = j;
+      bd->selectorMtf[i] = j;
    }
 
    /*--- Undo the MTF values for the selectors. ---*/
@@ -1496,11 +1519,11 @@ void recvDecodingTables ( void )
       for (v = 0; v < nGroups; v++) pos[v] = v;
    
       for (i = 0; i < nSelectors; i++) {
-         v = utc_selectorMtf[i];
+         v = bd->selectorMtf[i];
          tmp = pos[v];
          while (v > 0) { pos[v] = pos[v-1]; v--; }
          pos[0] = tmp;
-         utc_selector[i] = tmp;
+         bd->selector[i] = tmp;
       }
    }
 
@@ -1511,7 +1534,7 @@ void recvDecodingTables ( void )
          while (bsR(1) == 1) {
             if (bsR(1) == 0) curr++; else curr--;
          }
-         utc_len[t][i] = curr;
+         bd->len[t][i] = curr;
       }
    }
 
@@ -1520,11 +1543,11 @@ void recvDecodingTables ( void )
       minLen = 32;
       maxLen = 0;
       for (i = 0; i < alphaSize; i++) {
-         if (utc_len[t][i] > maxLen) maxLen = utc_len[t][i];
-         if (utc_len[t][i] < minLen) minLen = utc_len[t][i];
+         if (bd->len[t][i] > maxLen) maxLen = bd->len[t][i];
+         if (bd->len[t][i] < minLen) minLen = bd->len[t][i];
       }
       hbCreateDecodeTables ( 
-         &limit[t][0], &base[t][0], &perm[t][0], &utc_len[t][0],
+         &limit[t][0], &base[t][0], &perm[t][0], &bd->len[t][0],
          minLen, maxLen, alphaSize
       );
       minLens[t] = minLen;
@@ -1541,7 +1564,7 @@ void recvDecodingTables ( void )
       groupPos = G_SIZE;                  \
    }                                      \
    groupPos--;                            \
-   zt = utc_selector[groupNo];                \
+   zt = bd->selector[groupNo];                \
    zn = minLens[zt];                      \
    zvec = bsR ( zn );                     \
    while (zvec > limit[zt][zn]) {         \
@@ -1553,17 +1576,17 @@ void recvDecodingTables ( void )
 
 
 /*---------------------------------------------*/
-void getAndMoveToFrontDecode ( void )
+void getAndMoveToFrontDecode ( BlockData *bd )
 {
    UChar  yy[256];
    Int32  i, j, nextSym, limitLast;
    Int32  EOB, groupNo, groupPos;
 
    limitLast = 100000 * blockSize100k;
-   utc_origPtr   = bsGetIntVS ( 24 );
+   bd->origPtr   = bsGetIntVS ( 24 );
 
    recvDecodingTables();
-   EOB      = utc_nInUse+1;
+   EOB      = bd->nInUse+1;
    groupNo  = -1;
    groupPos = 0;
 
@@ -1577,7 +1600,7 @@ void getAndMoveToFrontDecode ( void )
 
    for (i = 0; i <= 255; i++) yy[i] = (UChar) i;
 
-   utc_last = -1;
+   bd->last = -1;
 
    GET_MTF_VAL(nextSym);
 
@@ -1598,35 +1621,35 @@ void getAndMoveToFrontDecode ( void )
             while (nextSym == RUNA || nextSym == RUNB);
 
          s++;
-         ch = utc_seqToUnseq[yy[0]];
+         ch = bd->seqToUnseq[yy[0]];
          unzftab[ch] += s;
 
          if (smallMode)
             while (s > 0) {
-               utc_last++; 
-               ll16[utc_last] = ch;
+               bd->last++; 
+               ll16[bd->last] = ch;
                s--;
             }
          else
             while (s > 0) {
-               utc_last++;
-               ll8[utc_last] = ch;
+               bd->last++;
+               ll8[bd->last] = ch;
                s--;
             };
 
-         if (utc_last >= limitLast) blockOverrun();
+         if (bd->last >= limitLast) blockOverrun();
          continue;
 
       } else {
 
          UChar tmp;
-         utc_last++; if (utc_last >= limitLast) blockOverrun();
+         bd->last++; if (bd->last >= limitLast) blockOverrun();
 
          tmp = yy[nextSym-1];
-         unzftab[utc_seqToUnseq[tmp]]++;
+         unzftab[bd->seqToUnseq[tmp]]++;
          if (smallMode)
-            ll16[utc_last] = utc_seqToUnseq[tmp]; else
-            ll8[utc_last]  = utc_seqToUnseq[tmp];
+            ll16[bd->last] = bd->seqToUnseq[tmp]; else
+            ll8[bd->last]  = bd->seqToUnseq[tmp];
 
          /*--
             This loop is hammered during decompression,
@@ -1666,7 +1689,7 @@ void getAndMoveToFrontDecode ( void )
   into the subscript range
   [last+1 .. last+NUM_OVERSHOOT_BYTES].
 --*/
-INLINE Bool fullGtU ( Int32 i1, Int32 i2 )
+INLINE Bool fullGtU ( BlockData *bd, Int32 i1, Int32 i2 )
 {
    Int32 k;
    UChar c1, c2;
@@ -1680,77 +1703,77 @@ INLINE Bool fullGtU ( Int32 i1, Int32 i2 )
       assert (i1 != i2);
    #endif
 
-   c1 = utc_block[i1];
-   c2 = utc_block[i2];
+   c1 = bd->block[i1];
+   c2 = bd->block[i2];
    if (c1 != c2) return (c1 > c2);
    i1++; i2++;
 
-   c1 = utc_block[i1];
-   c2 = utc_block[i2];
+   c1 = bd->block[i1];
+   c2 = bd->block[i2];
    if (c1 != c2) return (c1 > c2);
    i1++; i2++;
 
-   c1 = utc_block[i1];
-   c2 = utc_block[i2];
+   c1 = bd->block[i1];
+   c2 = bd->block[i2];
    if (c1 != c2) return (c1 > c2);
    i1++; i2++;
 
-   c1 = utc_block[i1];
-   c2 = utc_block[i2];
+   c1 = bd->block[i1];
+   c2 = bd->block[i2];
    if (c1 != c2) return (c1 > c2);
    i1++; i2++;
 
-   c1 = utc_block[i1];
-   c2 = utc_block[i2];
+   c1 = bd->block[i1];
+   c2 = bd->block[i2];
    if (c1 != c2) return (c1 > c2);
    i1++; i2++;
 
-   c1 = utc_block[i1];
-   c2 = utc_block[i2];
+   c1 = bd->block[i1];
+   c2 = bd->block[i2];
    if (c1 != c2) return (c1 > c2);
    i1++; i2++;
 
-   k = utc_last + 1;
+   k = bd->last + 1;
 
    do {
 
-      c1 = utc_block[i1];
-      c2 = utc_block[i2];
+      c1 = bd->block[i1];
+      c2 = bd->block[i2];
       if (c1 != c2) return (c1 > c2);
-      s1 = utc_quadrant[i1];
-      s2 = utc_quadrant[i2];
+      s1 = bd->quadrant[i1];
+      s2 = bd->quadrant[i2];
       if (s1 != s2) return (s1 > s2);
       i1++; i2++;
 
-      c1 = utc_block[i1];
-      c2 = utc_block[i2];
+      c1 = bd->block[i1];
+      c2 = bd->block[i2];
       if (c1 != c2) return (c1 > c2);
-      s1 = utc_quadrant[i1];
-      s2 = utc_quadrant[i2];
+      s1 = bd->quadrant[i1];
+      s2 = bd->quadrant[i2];
       if (s1 != s2) return (s1 > s2);
       i1++; i2++;
 
-      c1 = utc_block[i1];
-      c2 = utc_block[i2];
+      c1 = bd->block[i1];
+      c2 = bd->block[i2];
       if (c1 != c2) return (c1 > c2);
-      s1 = utc_quadrant[i1];
-      s2 = utc_quadrant[i2];
+      s1 = bd->quadrant[i1];
+      s2 = bd->quadrant[i2];
       if (s1 != s2) return (s1 > s2);
       i1++; i2++;
 
-      c1 = utc_block[i1];
-      c2 = utc_block[i2];
+      c1 = bd->block[i1];
+      c2 = bd->block[i2];
       if (c1 != c2) return (c1 > c2);
-      s1 = utc_quadrant[i1];
-      s2 = utc_quadrant[i2];
+      s1 = bd->quadrant[i1];
+      s2 = bd->quadrant[i2];
       if (s1 != s2) return (s1 > s2);
       i1++; i2++;
 
-      if (i1 > utc_last) { i1 -= utc_last; i1--; };
-      if (i2 > utc_last) { i2 -= utc_last; i2--; };
+      if (i1 > bd->last) { i1 -= bd->last; i1--; };
+      if (i2 > bd->last) { i2 -= bd->last; i2--; };
 
       k -= 4;
-      utc_workDone++;
+      bd->workDone++;
    }
       while (k >= 0);
 
@@ -1768,7 +1791,7 @@ Int32 incs[14] = { 1, 4, 13, 40, 121, 364, 1093, 3280,
                    9841, 29524, 88573, 265720,
                    797161, 2391484 };
 
-void simpleSort ( Int32 lo, Int32 hi, Int32 d )
+void simpleSort ( BlockData *bd, Int32 lo, Int32 hi, Int32 d )
 {
    Int32 i, j, h, bigN, hp;
    Int32 v;
@@ -1790,41 +1813,41 @@ void simpleSort ( Int32 lo, Int32 hi, Int32 d )
 
          /*-- copy 1 --*/
          if (i > hi) break;
-         v = utc_zptr[i];
+         v = bd->zptr[i];
          j = i;
-         while ( fullGtU ( utc_zptr[j-h]+d, v+d ) ) {
-            utc_zptr[j] = utc_zptr[j-h];
+         while ( fullGtU ( bd->zptr[j-h]+d, v+d ) ) {
+            bd->zptr[j] = bd->zptr[j-h];
             j = j - h;
             if (j <= (lo + h - 1)) break;
          }
-         utc_zptr[j] = v;
+         bd->zptr[j] = v;
          i++;
 
          /*-- copy 2 --*/
          if (i > hi) break;
-         v = utc_zptr[i];
+         v = bd->zptr[i];
          j = i;
-         while ( fullGtU ( utc_zptr[j-h]+d, v+d ) ) {
-            utc_zptr[j] = utc_zptr[j-h];
+         while ( fullGtU ( bd->zptr[j-h]+d, v+d ) ) {
+            bd->zptr[j] = bd->zptr[j-h];
             j = j - h;
             if (j <= (lo + h - 1)) break;
          }
-         utc_zptr[j] = v;
+         bd->zptr[j] = v;
          i++;
 
          /*-- copy 3 --*/
          if (i > hi) break;
-         v = utc_zptr[i];
+         v = bd->zptr[i];
          j = i;
-         while ( fullGtU ( utc_zptr[j-h]+d, v+d ) ) {
-            utc_zptr[j] = utc_zptr[j-h];
+         while ( fullGtU ( bd->zptr[j-h]+d, v+d ) ) {
+            bd->zptr[j] = bd->zptr[j-h];
             j = j - h;
             if (j <= (lo + h - 1)) break;
          }
-         utc_zptr[j] = v;
+         bd->zptr[j] = v;
          i++;
 
-         if (utc_workDone > utc_workLimit && utc_firstAttempt) return;
+         if (bd->workDone > bd->workLimit && bd->firstAttempt) return;
       }
    }
 }
@@ -1842,10 +1865,10 @@ void simpleSort ( Int32 lo, Int32 hi, Int32 d )
 #define swap(lv1, lv2) \
    { Int32 tmp = lv1; lv1 = lv2; lv2 = tmp; }
 
-INLINE void vswap ( Int32 p1, Int32 p2, Int32 n )
+INLINE void vswap ( BlockData *bd, Int32 p1, Int32 p2, Int32 n )
 {
    while (n > 0) {
-      swap(utc_zptr[p1], utc_zptr[p2]);
+      swap(bd->zptr[p1], bd->zptr[p2]);
       p1++; p2++; n--;
    }
 }
@@ -1890,7 +1913,7 @@ typedef
 #define QSORT_STACK_SIZE 1000
 
 
-void qSort3 ( Int32 loSt, Int32 hiSt, Int32 dSt )
+void qSort3 ( BlockData *bd, Int32 loSt, Int32 hiSt, Int32 dSt )
 {
    Int32 unLo, unHi, ltLo, gtHi, med, n, m;
    Int32 sp, lo, hi, d;
@@ -1907,13 +1930,13 @@ void qSort3 ( Int32 loSt, Int32 hiSt, Int32 dSt )
 
       if (hi - lo < SMALL_THRESH || d > DEPTH_THRESH) {
          simpleSort ( lo, hi, d );
-         if (utc_workDone > utc_workLimit && utc_firstAttempt) return;
+         if (bd->workDone > bd->workLimit && bd->firstAttempt) return;
          continue;
       }
 
-      med = med3 ( utc_block[utc_zptr[ lo         ]+d],
-                   utc_block[utc_zptr[ hi         ]+d],
-                   utc_block[utc_zptr[ (lo+hi)>>1 ]+d] );
+      med = med3 ( bd->block[bd->zptr[ lo         ]+d],
+                   bd->block[bd->zptr[ hi         ]+d],
+                   bd->block[bd->zptr[ (lo+hi)>>1 ]+d] );
 
       unLo = ltLo = lo;
       unHi = gtHi = hi;
@@ -1921,20 +1944,20 @@ void qSort3 ( Int32 loSt, Int32 hiSt, Int32 dSt )
       while (True) {
          while (True) {
             if (unLo > unHi) break;
-            n = ((Int32)utc_block[utc_zptr[unLo]+d]) - med;
-            if (n == 0) { swap(utc_zptr[unLo], utc_zptr[ltLo]); ltLo++; unLo++; continue; };
+            n = ((Int32)bd->block[bd->zptr[unLo]+d]) - med;
+            if (n == 0) { swap(bd->zptr[unLo], bd->zptr[ltLo]); ltLo++; unLo++; continue; };
             if (n >  0) break;
             unLo++;
          }
          while (True) {
             if (unLo > unHi) break;
-            n = ((Int32)utc_block[utc_zptr[unHi]+d]) - med;
-            if (n == 0) { swap(utc_zptr[unHi], utc_zptr[gtHi]); gtHi--; unHi--; continue; };
+            n = ((Int32)bd->block[bd->zptr[unHi]+d]) - med;
+            if (n == 0) { swap(bd->zptr[unHi], bd->zptr[gtHi]); gtHi--; unHi--; continue; };
             if (n <  0) break;
             unHi--;
          }
          if (unLo > unHi) break;
-         swap(utc_zptr[unLo], utc_zptr[unHi]); unLo++; unHi--;
+         swap(bd->zptr[unLo], bd->zptr[unHi]); unLo++; unHi--;
       }
       #if DEBUG
          assert (unHi == unLo-1);
@@ -1960,12 +1983,12 @@ void qSort3 ( Int32 loSt, Int32 hiSt, Int32 dSt )
 
 /*---------------------------------------------*/
 
-#define BIGFREQ(b) (utc_ftab[((b)+1) << 8] - utc_ftab[(b) << 8])
+#define BIGFREQ(b) (bd->ftab[((b)+1) << 8] - bd->ftab[(b) << 8])
 
 #define SETMASK (1 << 21)
 #define CLEARMASK (~(SETMASK))
 
-void sortIt ( void )
+void sortIt ( BlockData *bd )
 {
    Int32 i, j, ss, sb;
    Int32 runningOrder[256];
@@ -1982,23 +2005,23 @@ void sortIt ( void )
 
    if (verbosity >= 4) fprintf ( stderr, "        sort initialise ...\n" );
    for (i = 0; i < NUM_OVERSHOOT_BYTES; i++)
-       utc_block[utc_last+i+1] = utc_block[i % (utc_last+1)];
-   for (i = 0; i <= utc_last+NUM_OVERSHOOT_BYTES; i++)
-       utc_quadrant[i] = 0;
+       bd->block[bd->last+i+1] = bd->block[i % (bd->last+1)];
+   for (i = 0; i <= bd->last+NUM_OVERSHOOT_BYTES; i++)
+       bd->quadrant[i] = 0;
 
-   utc_block[-1] = utc_block[utc_last];
+   bd->block[-1] = bd->block[bd->last];
 
-   if (utc_last < 4000) {
+   if (bd->last < 4000) {
 
       /*--
          Use simpleSort(), since the full sorting mechanism
          has quite a large constant overhead.
       --*/
       if (verbosity >= 4) fprintf ( stderr, "        simpleSort ...\n" );
-      for (i = 0; i <= utc_last; i++) utc_zptr[i] = i;
-      utc_firstAttempt = False;
-      utc_workDone = utc_workLimit = 0;
-      simpleSort ( 0, utc_last, 0 );
+      for (i = 0; i <= bd->last; i++) bd->zptr[i] = i;
+      bd->firstAttempt = False;
+      bd->workDone = bd->workLimit = 0;
+      simpleSort ( 0, bd->last, 0 );
       if (verbosity >= 4) fprintf ( stderr, "        simpleSort done.\n" );
 
    } else {
@@ -2008,28 +2031,28 @@ void sortIt ( void )
 
       if (verbosity >= 4) fprintf ( stderr, "        bucket sorting ...\n" );
 
-      for (i = 0; i <= 65536; i++) utc_ftab[i] = 0;
+      for (i = 0; i <= 65536; i++) bd->ftab[i] = 0;
 
-      c1 = utc_block[-1];
-      for (i = 0; i <= utc_last; i++) {
-         c2 = utc_block[i];
-         utc_ftab[(c1 << 8) + c2]++;
+      c1 = bd->block[-1];
+      for (i = 0; i <= bd->last; i++) {
+         c2 = bd->block[i];
+         bd->ftab[(c1 << 8) + c2]++;
          c1 = c2;
       }
 
-      for (i = 1; i <= 65536; i++) utc_ftab[i] += utc_ftab[i-1];
+      for (i = 1; i <= 65536; i++) bd->ftab[i] += bd->ftab[i-1];
 
-      c1 = utc_block[0];
-      for (i = 0; i < utc_last; i++) {
-         c2 = utc_block[i+1];
+      c1 = bd->block[0];
+      for (i = 0; i < bd->last; i++) {
+         c2 = bd->block[i+1];
          j = (c1 << 8) + c2;
          c1 = c2;
-         utc_ftab[j]--;
-         utc_zptr[utc_ftab[j]] = i;
+         bd->ftab[j]--;
+         bd->zptr[bd->ftab[j]] = i;
       }
-      j = (utc_block[utc_last] << 8) + utc_block[0];
-      utc_ftab[j]--;
-      utc_zptr[utc_ftab[j]] = utc_last;
+      j = (bd->block[bd->last] << 8) + bd->block[0];
+      bd->ftab[j]--;
+      bd->zptr[bd->ftab[j]] = bd->last;
 
       /*--
          Now ftab contains the first loc of every small bucket.
@@ -2079,9 +2102,9 @@ void sortIt ( void )
          --*/
          for (j = 0; j <= 255; j++) {
             sb = (ss << 8) + j;
-            if ( ! (utc_ftab[sb] & SETMASK) ) {
-               Int32 lo = utc_ftab[sb]   & CLEARMASK;
-               Int32 hi = (utc_ftab[sb+1] & CLEARMASK) - 1;
+            if ( ! (bd->ftab[sb] & SETMASK) ) {
+               Int32 lo = bd->ftab[sb]   & CLEARMASK;
+               Int32 hi = (bd->ftab[sb+1] & CLEARMASK) - 1;
                if (hi > lo) {
                   if (verbosity >= 4)
                      fprintf ( stderr,
@@ -2089,9 +2112,9 @@ void sortIt ( void )
                                ss, j, numQSorted, hi - lo + 1 );
                   qSort3 ( lo, hi, 2 );
                   numQSorted += ( hi - lo + 1 );
-                  if (utc_workDone > utc_workLimit && utc_firstAttempt) return;
+                  if (bd->workDone > bd->workLimit && bd->firstAttempt) return;
                }
-               utc_ftab[sb] |= SETMASK;
+               bd->ftab[sb] |= SETMASK;
             }
          }
 
@@ -2106,18 +2129,18 @@ void sortIt ( void )
          bigDone[ss] = True;
 
          if (i < 255) {
-            Int32 bbStart  = utc_ftab[ss << 8] & CLEARMASK;
-            Int32 bbSize   = (utc_ftab[(ss+1) << 8] & CLEARMASK) - bbStart;
+            Int32 bbStart  = bd->ftab[ss << 8] & CLEARMASK;
+            Int32 bbSize   = (bd->ftab[(ss+1) << 8] & CLEARMASK) - bbStart;
             Int32 shifts   = 0;
 
             while ((bbSize >> shifts) > 65534) shifts++;
 
             for (j = 0; j < bbSize; j++) {
-               Int32 a2update     = utc_zptr[bbStart + j];
+               Int32 a2update     = bd->zptr[bbStart + j];
                UInt16 qVal        = (UInt16)(j >> shifts);
-               utc_quadrant[a2update] = qVal;
+               bd->quadrant[a2update] = qVal;
                if (a2update < NUM_OVERSHOOT_BYTES)
-                  utc_quadrant[a2update + utc_last + 1] = qVal;
+                  bd->quadrant[a2update + bd->last + 1] = qVal;
             }
 
             if (! ( ((bbSize-1) >> shifts) <= 65535 )) panic ( "sortIt" );
@@ -2128,23 +2151,23 @@ void sortIt ( void )
             sorted order for small buckets [t, ss] for all t != ss.
          --*/
          for (j = 0; j <= 255; j++)
-            copy[j] = utc_ftab[(j << 8) + ss] & CLEARMASK;
+            copy[j] = bd->ftab[(j << 8) + ss] & CLEARMASK;
 
-         for (j = utc_ftab[ss << 8] & CLEARMASK;
-              j < (utc_ftab[(ss+1) << 8] & CLEARMASK);
+         for (j = bd->ftab[ss << 8] & CLEARMASK;
+              j < (bd->ftab[(ss+1) << 8] & CLEARMASK);
               j++) {
-            c1 = utc_block[utc_zptr[j]-1];
+            c1 = bd->block[bd->zptr[j]-1];
             if ( ! bigDone[c1] ) {
-               utc_zptr[copy[c1]] = utc_zptr[j] == 0 ? utc_last : utc_zptr[j] - 1;
+               bd->zptr[copy[c1]] = bd->zptr[j] == 0 ? bd->last : bd->zptr[j] - 1;
                copy[c1] ++;
             }
          }
 
-         for (j = 0; j <= 255; j++) utc_ftab[(j << 8) + ss] |= SETMASK;
+         for (j = 0; j <= 255; j++) bd->ftab[(j << 8) + ss] |= SETMASK;
       }
       if (verbosity >= 4)
          fprintf ( stderr, "        %d pointers, %d sorted, %d scanned\n",
-                           utc_last+1, numQSorted, (utc_last+1) - numQSorted );
+                           bd->last+1, numQSorted, (bd->last+1) - numQSorted );
    }
 }
 
@@ -2230,57 +2253,57 @@ Int32 rNums[512] = {
 /*---------------------------------------------------*/
 
 /*---------------------------------------------*/
-void randomiseBlock ( void )
+void randomiseBlock ( BlockData *bd )
 {
    Int32 i;
    RAND_DECLS;
-   for (i = 0; i < 256; i++) utc_inUse[i] = False;
+   for (i = 0; i < 256; i++) bd->inUse[i] = False;
 
-   for (i = 0; i <= utc_last; i++) {
+   for (i = 0; i <= bd->last; i++) {
       RAND_UPD_MASK;
-      utc_block[i] ^= RAND_MASK;
-      utc_inUse[utc_block[i]] = True;
+      bd->block[i] ^= RAND_MASK;
+      bd->inUse[bd->block[i]] = True;
    }
 }
 
 
 /*---------------------------------------------*/
-void doReversibleTransformation ( void )
+void doReversibleTransformation ( BlockData *bd )
 {
    Int32 i;
 
    if (verbosity >= 2) fprintf ( stderr, "\n" );
 
-   utc_workLimit       = utc_workFactor * utc_last;
-   utc_workDone        = 0;
-   utc_blockRandomised = False;
-   utc_firstAttempt    = True;
+   bd->workLimit       = workFactor * bd->last;
+   bd->workDone        = 0;
+   bd->blockRandomised = False;
+   bd->firstAttempt    = True;
 
    sortIt ();
 
    if (verbosity >= 3)
       fprintf ( stderr, "      %d work, %d block, ratio %5.2f\n",
-                        utc_workDone, utc_last, (float)utc_workDone / (float)(utc_last) );
+                        bd->workDone, bd->last, (float)bd->workDone / (float)(bd->last) );
 
-   if (utc_workDone > utc_workLimit && utc_firstAttempt) {
+   if (bd->workDone > bd->workLimit && bd->firstAttempt) {
       if (verbosity >= 2)
          fprintf ( stderr, "    sorting aborted; randomising block\n" );
       randomiseBlock ();
-      utc_workLimit = utc_workDone = 0;
-      utc_blockRandomised = True;
-      utc_firstAttempt = False;
+      bd->workLimit = bd->workDone = 0;
+      bd->blockRandomised = True;
+      bd->firstAttempt = False;
       sortIt();
       if (verbosity >= 3)
          fprintf ( stderr, "      %d work, %d block, ratio %f\n",
-                           utc_workDone, utc_last, (float)utc_workDone / (float)(utc_last) );
+                           bd->workDone, bd->last, (float)bd->workDone / (float)(bd->last) );
    }
 
-   utc_origPtr = -1;
-   for (i = 0; i <= utc_last; i++)
-       if (utc_zptr[i] == 0)
-          { utc_origPtr = i; break; };
+   bd->origPtr = -1;
+   for (i = 0; i <= bd->last; i++)
+       if (bd->zptr[i] == 0)
+          { bd->origPtr = i; break; };
 
-   if (utc_origPtr == -1) panic ( "doReversibleTransformation" );
+   if (bd->origPtr == -1) panic ( "doReversibleTransformation" );
 }
 
 
@@ -2306,7 +2329,7 @@ INLINE Int32 indexIntoF ( Int32 indx, Int32 *cftab )
       tPos = GET_LL(tPos);
 
 
-void undoReversibleTransformation_small ( FILE* dst )
+void undoReversibleTransformation_small ( BlockData *bd, FILE* dst )
 {
    Int32  cftab[257], cftabAlso[257];
    Int32  i, j, tmp, tPos;
@@ -2327,7 +2350,7 @@ void undoReversibleTransformation_small ( FILE* dst )
    for (i = 0; i <= 256; i++) cftabAlso[i] = cftab[i];
 
    /*-- compute the T vector --*/
-   for (i = 0; i <= utc_last; i++) {
+   for (i = 0; i <= bd->last; i++) {
       ch = (UChar)ll16[i];
       SET_LL(i, cftabAlso[ch]);
       cftabAlso[ch]++;
@@ -2350,7 +2373,7 @@ void undoReversibleTransformation_small ( FILE* dst )
       N-1 non-reversed cycles.  Providing that the F-subscripting
       phase which follows starts at origPtr, all then works ok.
    --*/
-   i = utc_origPtr;
+   i = bd->origPtr;
    j = GET_LL(i);
    do {
       tmp = GET_LL(j);
@@ -2358,7 +2381,7 @@ void undoReversibleTransformation_small ( FILE* dst )
       i = j;
       j = tmp;
    }
-      while (i != utc_origPtr);
+      while (i != bd->origPtr);
 
    /*--
       We recreate the original by subscripting F through T^(-1).
@@ -2366,7 +2389,7 @@ void undoReversibleTransformation_small ( FILE* dst )
       so tPos is set to a starting value, and is updated by
       the GET_SMALL macro.
    --*/
-   tPos   = utc_origPtr;
+   tPos   = bd->origPtr;
 
    /*-------------------------------------------------*/
    /*--
@@ -2393,10 +2416,10 @@ void undoReversibleTransformation_small ( FILE* dst )
 
       {
          RAND_DECLS;
-         while ( i2 <= utc_last ) {
+         while ( i2 <= bd->last ) {
             chPrev = ch2;
             GET_SMALL(ch2);
-            if (utc_blockRandomised) {
+            if (bd->blockRandomised) {
                RAND_UPD_MASK;
                ch2 ^= (UInt32)RAND_MASK;
             }
@@ -2415,7 +2438,7 @@ void undoReversibleTransformation_small ( FILE* dst )
                   Int32 j2;
                   UChar z;
                   GET_SMALL(z);
-                  if (utc_blockRandomised) {
+                  if (bd->blockRandomised) {
                      RAND_UPD_MASK;
                      z ^= RAND_MASK;
                   }
@@ -2445,7 +2468,7 @@ void undoReversibleTransformation_small ( FILE* dst )
       tPos = tt[tPos];
 
 
-void undoReversibleTransformation_fast ( FILE* dst )
+void undoReversibleTransformation_fast ( BlockData *bd, FILE* dst )
 {
    Int32  cftab[257];
    Int32  i, tPos;
@@ -2463,7 +2486,7 @@ void undoReversibleTransformation_fast ( FILE* dst )
    for (i = 1; i <= 256; i++) cftab[i] += cftab[i-1];
 
    /*-- compute the T^(-1) vector --*/
-   for (i = 0; i <= utc_last; i++) {
+   for (i = 0; i <= bd->last; i++) {
       ch = (UChar)ll8[i];
       tt[cftab[ch]] = i;
       cftab[ch]++;
@@ -2475,7 +2498,7 @@ void undoReversibleTransformation_fast ( FILE* dst )
       so tPos is set to a starting value, and is updated by
       the GET_FAST macro.
    --*/
-   tPos   = tt[utc_origPtr];
+   tPos   = tt[bd->origPtr];
 
    /*-------------------------------------------------*/
    /*--
@@ -2496,9 +2519,9 @@ void undoReversibleTransformation_fast ( FILE* dst )
       ch2      = 256;   /*-- not a char and not EOF --*/
       localCrc = getGlobalCRC();
 
-      if (utc_blockRandomised) {
+      if (bd->blockRandomised) {
          RAND_DECLS;
-         while ( i2 <= utc_last ) {
+         while ( i2 <= bd->last ) {
             chPrev = ch2;
             GET_FAST(ch2);
             RAND_UPD_MASK;
@@ -2530,7 +2553,7 @@ void undoReversibleTransformation_fast ( FILE* dst )
 
       } else {
 
-         while ( i2 <= utc_last ) {
+         while ( i2 <= bd->last ) {
             chPrev = ch2;
             GET_FAST(ch2);
             i2++;
@@ -2618,19 +2641,19 @@ INLINE Int32 getRLEpair ( FILE* src )
 
 
 /*---------------------------------------------*/
-void loadAndRLEsource ( FILE* src )
+void loadAndRLEsource ( BlockData *bd, FILE* src )
 {
    Int32 ch, allowableBlockSize, i;
 
-   utc_last = -1;
+   bd->last = -1;
    ch   = 0;
 
-   for (i = 0; i < 256; i++) utc_inUse[i] = False;
+   for (i = 0; i < 256; i++) bd->inUse[i] = False;
 
    /*--- 20 is just a paranoia constant ---*/
    allowableBlockSize = 100000 * blockSize100k - 20;
 
-   while (utc_last < allowableBlockSize && ch != MY_EOF) {
+   while (bd->last < allowableBlockSize && ch != MY_EOF) {
       Int32 rlePair, runLen;
       rlePair = getRLEpair ( src );
       ch      = rlePair & 0xFFFF;
@@ -2641,24 +2664,24 @@ void loadAndRLEsource ( FILE* src )
       #endif
 
       if (ch != MY_EOF) {
-         utc_inUse[ch] = True;
+         bd->inUse[ch] = True;
          switch (runLen) {
             case 1:
-               utc_last++; utc_block[utc_last] = (UChar)ch; break;
+               bd->last++; bd->block[bd->last] = (UChar)ch; break;
             case 2:
-               utc_last++; utc_block[utc_last] = (UChar)ch;
-               utc_last++; utc_block[utc_last] = (UChar)ch; break;
+               bd->last++; bd->block[bd->last] = (UChar)ch;
+               bd->last++; bd->block[bd->last] = (UChar)ch; break;
             case 3:
-               utc_last++; utc_block[utc_last] = (UChar)ch;
-               utc_last++; utc_block[utc_last] = (UChar)ch;
-               utc_last++; utc_block[utc_last] = (UChar)ch; break;
+               bd->last++; bd->block[bd->last] = (UChar)ch;
+               bd->last++; bd->block[bd->last] = (UChar)ch;
+               bd->last++; bd->block[bd->last] = (UChar)ch; break;
             default:
-               utc_inUse[runLen-4] = True;
-               utc_last++; utc_block[utc_last] = (UChar)ch;
-               utc_last++; utc_block[utc_last] = (UChar)ch;
-               utc_last++; utc_block[utc_last] = (UChar)ch;
-               utc_last++; utc_block[utc_last] = (UChar)ch;
-               utc_last++; utc_block[utc_last] = (UChar)(runLen-4); break;
+               bd->inUse[runLen-4] = True;
+               bd->last++; bd->block[bd->last] = (UChar)ch;
+               bd->last++; bd->block[bd->last] = (UChar)ch;
+               bd->last++; bd->block[bd->last] = (UChar)ch;
+               bd->last++; bd->block[bd->last] = (UChar)ch;
+               bd->last++; bd->block[bd->last] = (UChar)(runLen-4); break;
          }
       }
    }
@@ -2679,7 +2702,7 @@ void compressStream ( FILE *stream, FILE *zStream )
    blockNo  = 0;
    bytesIn  = 0;
    bytesOut = 0;
-   utc_nBlocksRandomised = 0;
+   nBlocksRandomised = 0;
 
    SET_BINARY_MODE(stream);
    SET_BINARY_MODE(zStream);
@@ -2708,7 +2731,7 @@ void compressStream ( FILE *stream, FILE *zStream )
       initialiseCRC ();
       loadAndRLEsource ( stream );
       ERROR_IF_NOT_ZERO ( ferror(stream) );
-      if (utc_last == -1) break;
+      if (bd->last == -1) break;
 
       blockCRC = getFinalCRC ();
       combinedCRC = (combinedCRC << 1) | (combinedCRC >> 31);
@@ -2716,7 +2739,7 @@ void compressStream ( FILE *stream, FILE *zStream )
 
       if (verbosity >= 2)
          fprintf ( stderr, "    block %d: crc = 0x%8x, combined CRC = 0x%8x, size = %d",
-                           blockNo, blockCRC, combinedCRC, utc_last+1 );
+                           blockNo, blockCRC, combinedCRC, bd->last+1 );
 
       /*-- sort the block and establish posn of original string --*/
       doReversibleTransformation ();
@@ -2742,8 +2765,8 @@ void compressStream ( FILE *stream, FILE *zStream )
       bsPutUInt32 ( blockCRC );
 
       /*-- Now a single bit indicating randomisation. --*/
-      if (utc_blockRandomised) {
-         bsW(1,1); utc_nBlocksRandomised++;
+      if (bd->blockRandomised) {
+         bsW(1,1); nBlocksRandomised++;
       } else
          bsW(1,0);
 
@@ -2753,10 +2776,10 @@ void compressStream ( FILE *stream, FILE *zStream )
       ERROR_IF_NOT_ZERO ( ferror(zStream) );
    }
 
-   if (verbosity >= 2 && utc_nBlocksRandomised > 0)
+   if (verbosity >= 2 && nBlocksRandomised > 0)
       fprintf ( stderr, "    %d block%s needed randomisation\n", 
-                        utc_nBlocksRandomised,
-                        utc_nBlocksRandomised == 1 ? "" : "s" );
+                        nBlocksRandomised,
+                        nBlocksRandomised == 1 ? "" : "s" );
 
    /*--
       Now another magic 48-bit number, 0x177245385090, to
@@ -2863,8 +2886,8 @@ Bool uncompressStream ( FILE *zStream, FILE *stream )
       storedBlockCRC = bsGetUInt32 ();
 
       if (bsR(1) == 1)
-         utc_blockRandomised = True; else
-         utc_blockRandomised = False;
+         bd->blockRandomised = True; else
+         bd->blockRandomised = False;
 
       currBlockNo++;
       if (verbosity >= 2)
@@ -2984,8 +3007,8 @@ Bool testStream ( FILE *zStream )
       storedBlockCRC = bsGetUInt32 ();
 
       if (bsR(1) == 1)
-         utc_blockRandomised = True; else
-         utc_blockRandomised = False;
+         bd->blockRandomised = True; else
+         bd->blockRandomised = False;
 
       if (verbosity >= 2)
          fprintf ( stderr, "    block [%d: huff+mtf ", currBlockNo );
@@ -3860,13 +3883,13 @@ IntNative main ( IntNative argc, Char *argv[] )
 
    /*-- Initialise --*/
    outputHandleJustInCase  = NULL;
-   utc_ftab                    = NULL;
+   //bd->ftab                    = NULL;
    ll4                     = NULL;
    ll16                    = NULL;
    ll8                     = NULL;
    tt                      = NULL;
-   utc_block                   = NULL;
-   utc_zptr                    = NULL;
+   //bd->block                   = NULL;
+   //bd->zptr                    = NULL;
    smallMode               = False;
    keepInputFiles          = False;
    verbosity               = 0;
@@ -3875,7 +3898,7 @@ IntNative main ( IntNative argc, Char *argv[] )
    bsStream                = NULL;
    numFileNames            = 0;
    numFilesProcessed       = 0;
-   utc_workFactor              = 30;
+   workFactor              = 30;
 
    strcpy ( inName,  "(none)" );
    strcpy ( outName, "(none)" );
@@ -3962,8 +3985,8 @@ IntNative main ( IntNative argc, Char *argv[] )
       if (ISFLAG("--small"))             smallMode        = True;    else
       if (ISFLAG("--version"))           license();                  else
       if (ISFLAG("--license"))           license();                  else
-      if (ISFLAG("--repetitive-fast"))   utc_workFactor = 5;             else
-      if (ISFLAG("--repetitive-best"))   utc_workFactor = 150;           else
+      if (ISFLAG("--repetitive-fast"))   workFactor = 5;             else
+      if (ISFLAG("--repetitive-best"))   workFactor = 150;           else
       if (ISFLAG("--verbose"))           verbosity++;                else
       if (ISFLAG("--help"))              { usage ( progName ); exit ( 1 ); }
          else
@@ -3997,7 +4020,7 @@ IntNative main ( IntNative argc, Char *argv[] )
    if (opMode != OM_Z) blockSize100k = 0;
 
    if (opMode == OM_Z) {
-      allocateCompressStructures();
+      //allocateCompressStructures();
       if (srcMode == SM_I2O)
          compress ( NULL );
          else
