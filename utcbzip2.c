@@ -129,7 +129,6 @@
    Platform-specific stuff.
 --*/
 
-#if BZ_UNIX
    #include <sys/types.h>
    #include <utime.h>
    #include <unistd.h>
@@ -166,64 +165,6 @@
       #define INLINE   /**/
       #define NORETURN /**/
    #endif
-#endif
-
-
-
-#if BZ_LCCWIN32
-   #include <io.h>
-   #include <fcntl.h>
-   #include <sys\stat.h>
-
-   #define Int32   int
-   #define UInt32  unsigned int
-   #define Int16   short
-   #define UInt16  unsigned short
-   #define Char    char
-   #define UChar   unsigned char
-
-   #define INLINE         /**/
-   #define NORETURN       /**/
-   #define PATH_SEP       '\\'
-   #define MY_LSTAT       _stat
-   #define MY_STAT        _stat
-   #define MY_S_IFREG(x)  ((x) & _S_IFREG)
-
-   #if 0
-   /*-- lcc-win32 seems to expand wildcards itself --*/
-   #define APPEND_FILESPEC(root, spec)                \
-      do {                                            \
-         if ((spec)[0] == '-') {                      \
-            root = snocString((root), (spec));        \
-         } else {                                     \
-            struct _finddata_t c_file;                \
-            long hFile;                               \
-            hFile = _findfirst((spec), &c_file);      \
-            if ( hFile == -1L ) {                     \
-               root = snocString ((root), (spec));    \
-            } else {                                  \
-               int anInt = 0;                         \
-               while ( anInt == 0 ) {                 \
-                  root = snocString((root),           \
-                            &c_file.name[0]);         \
-                  anInt = _findnext(hFile, &c_file);  \
-               }                                      \
-            }                                         \
-         }                                            \
-      } while ( 0 )
-   #else
-   #define APPEND_FILESPEC(root, name)                \
-      root = snocString ((root), (name))
-   #endif
-
-   #define SET_BINARY_MODE(fd)                        \
-      do {                                            \
-         int retVal = setmode ( fileno ( fd ),        \
-                               O_BINARY );            \
-         ERROR_IF_MINUS_ONE ( retVal );               \
-      } while ( 0 )
-
-#endif
 
 
 /*---------------------------------------------*/
@@ -1099,10 +1040,10 @@ void hbCreateDecodeTables ( Int32 *limit,
 void allocateCompressStructures ( BlockData *bd )
 {
    Int32 n  = 100000 * blockSize100k;
-   bd->block    = malloc ( (n + 1 + NUM_OVERSHOOT_BYTES) * sizeof(UChar) );
-   bd->quadrant = malloc ( (n     + NUM_OVERSHOOT_BYTES) * sizeof(Int16) );
-   bd->zptr     = malloc ( n                             * sizeof(Int32) );
-   bd->ftab     = malloc ( 65537                         * sizeof(Int32) );
+   bd->block    = (UChar*)malloc ( (n + 1 + NUM_OVERSHOOT_BYTES) * sizeof(UChar) );
+   bd->quadrant = (UInt16*)malloc ( (n     + NUM_OVERSHOOT_BYTES) * sizeof(Int16) );
+   bd->zptr     = (Int32*)malloc ( n                             * sizeof(Int32) );
+   bd->ftab     = (Int32*)malloc ( 65537                         * sizeof(Int32) );
 
    if (bd->block == NULL || bd->quadrant == NULL ||
        bd->zptr == NULL  || bd->ftab == NULL) {
@@ -1168,8 +1109,8 @@ void setDecompressStructureSizes ( Int32 newSize100k )
    if (smallMode) {
 
       Int32 n = 100000 * newSize100k;
-      ll16    = malloc ( n * sizeof(UInt16) );
-      ll4     = malloc ( ((n+1) >> 1) * sizeof(UChar) );
+      ll16    = (UInt16*)malloc ( n * sizeof(UInt16) );
+      ll4     = (UChar*)malloc ( ((n+1) >> 1) * sizeof(UChar) );
 
       if (ll4 == NULL || ll16 == NULL) {
          Int32 totalDraw
@@ -1180,8 +1121,8 @@ void setDecompressStructureSizes ( Int32 newSize100k )
    } else {
 
       Int32 n = 100000 * newSize100k;
-      ll8     = malloc ( n * sizeof(UChar) );
-      tt      = malloc ( n * sizeof(Int32) );
+      ll8     = (UChar*)malloc ( n * sizeof(UChar) );
+      tt      = (Int32*)malloc ( n * sizeof(Int32) );
 
       if (ll8 == NULL || tt == NULL) {
          Int32 totalDraw
@@ -3958,12 +3899,26 @@ Cell *snocString ( Cell *root, Char *name )
 #define ISFLAG(s) (strcmp(aa->name, (s))==0)
 
 
-IntNative main ( IntNative argc, Char *argv[] )
+//IntNative main ( IntNative argc, Char *argv[] )
+//thread main( IntNative argc, Char** argv )
+thread main() // utc-ptl can't handle main with arguments yet :(
 {
    Int32  i, j;
    Char   *tmp;
    Cell   *argList;
    Cell   *aa;
+
+   IntNative argc;
+   Char** argv;
+
+   // force to use stdin
+   argc = 2;
+   argv = (Char**)malloc(sizeof(Char*) * 2);
+   argv[0] = (Char*)malloc(sizeof(Char) * 10);
+   argv[1] = (Char*)malloc(sizeof(Char) * 2);
+
+   strcpy(argv[0], "utcbzip2");
+   strcpy(argv[1], "-");
 
 
    #if DEBUG
@@ -4171,7 +4126,7 @@ IntNative main ( IntNative argc, Char *argv[] )
          exit(2);
       }
    }
-   return 0;
+   //return 0;
 }
 
 
