@@ -692,7 +692,8 @@ int abc_def = 0;
 /*---------------------------------------------*/
 INLINE void bsW ( Int32 n, UInt32 v )
 {
-   cerr << abc_def++ << " " << n << " " << v << endl;
+   //cerr << abc_def++ << " " << n << " " << v << endl;
+   cerr << "";
    Int32 nn;
    UInt32 vv;
    nn = n;
