@@ -110,8 +110,8 @@
   Some stuff for all platforms.
 --*/
 
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdio.h>
 #if DEBUG
   #include <assert.h>
 #endif
@@ -158,13 +158,13 @@
       to inline the bits marked INLINE.  Otherwise bzip2 will
       run rather slowly.  gcc version 2.x is recommended.
    --*/
-   #ifdef __GNUC__
-      #define INLINE   inline
-      #define NORETURN __attribute__ ((noreturn))
-   #else
+   //#ifdef __GNUC__
+   //   #define INLINE   inline
+   //   #define NORETURN __attribute__ ((noreturn))
+   //#else
       #define INLINE   /**/
       #define NORETURN /**/
-   #endif
+   //#endif
 
 
 /*---------------------------------------------*/
@@ -623,7 +623,8 @@ void bsFinishedWithStream ( void )
 {
    if (bsWriting)
       while (bsLive > 0) {
-         fputc ( (UChar)(bsBuff >> 24), bsStream );
+         //fputc ( (UChar)(bsBuff >> 24), bsStream );
+         cout << (UChar)(bsBuff >> 24);
          bsBuff <<= 8;
          bsLive -= 8;
          bytesOut++;
@@ -656,6 +657,15 @@ void bsFinishedWithStream ( void )
    }                                          \
 }
 
+#define bsNEEDW2(nz)                           \
+{                                             \
+   while (bsLive >= 8) {                      \
+      cout << (UChar)(bsBuff >> 24);          \
+      bsBuff <<= 8;                           \
+      bsLive -= 8;                            \
+      bytesOut++;                             \
+   }                                          \
+}
 
 /*---------------------------------------------*/
 #define bsR1(vz)                              \
@@ -677,10 +687,17 @@ INLINE UInt32 bsR ( Int32 n )
 }
 
 
+int abc_def = 0;
+
 /*---------------------------------------------*/
 INLINE void bsW ( Int32 n, UInt32 v )
 {
-   bsNEEDW ( n );
+   cerr << abc_def++ << " " << n << " " << v << endl;
+   Int32 nn;
+   UInt32 vv;
+   nn = n;
+   vv = v;
+   bsNEEDW2 ( n );
    bsBuff |= (v << (32 - bsLive - n));
    bsLive += n;
 }
@@ -756,13 +773,43 @@ void pbsNEEDW( BlockData *bd, Int32 nz )
    UChar *tmp;
    UInt32 newSize;
 
+   /*
+   fprintf(stderr, "pbsNEEDW: bsLive=");
+   fflush(stderr);
+   std::cerr << bd->bsLive << endl;
+   fflush(stderr);
+   */
+
    while (bd->bsLive >= 8) {                      
+      //std::cerr << "@";
       if (bd->bsBufferLength >= bd->bsBufferSize) {
          newSize = bd->bsBufferSize * 2;
+         //std::cerr << "resize old=" << bd->bsBufferSize << " new=" << newSize;
          tmp = (UChar*)realloc(bd->bsBuffer, sizeof(UChar) * newSize);
+         /*
+         if (tmp == NULL) {
+            std::cerr << " GAGAL!";
+         }
+         else {
+            std::cerr << " OK!";
+         }
+         cerr << endl;
+         */
          bd->bsBuffer = tmp;
          bd->bsBufferSize = newSize;
       }
+      //std::cerr << "~";
+
+      /*
+      fprintf(stderr, "N ");
+      fflush(stderr);
+      fprintf(stderr, "[%d] ", (int)bd);
+      fflush(stderr);
+      fprintf(stderr, "%d\n", (int)(bd->bsBuff >> 24));
+      */
+      //fprintf(stderr, "N ");
+      //fflush(stderr);
+      //std::cerr << (bd->bsBuff >> 24) << std::endl;
 
       bd->bsBuffer[bd->bsBufferLength++] = (UChar)(bd->bsBuff >> 24);
       bd->bsBuff <<= 8;                           
@@ -775,6 +822,7 @@ void pbsNEEDW( BlockData *bd, Int32 nz )
 INLINE void pbsW ( BlockData *bd, Int32 n, UInt32 v )
 {
    pbsNEEDW ( bd, n );
+   //std::cerr << "pbsW: n=" << n << " v=" << v << endl;
    bd->bsBuff |= (v << (32 - bd->bsLive - n));
    bd->bsLive += n;
 }
@@ -788,6 +836,7 @@ void pbsPutUChar ( BlockData *bd, UChar c )
 /*---------------------------------------------*/
 void pbsPutUInt32 ( BlockData *bd, UInt32 u )
 {
+   //std::cerr << "pbsPutUInt32: u=" << u << std::endl;
    pbsW ( bd, 8, (u >> 24) & 0xffL );
    pbsW ( bd, 8, (u >> 16) & 0xffL );
    pbsW ( bd, 8, (u >>  8) & 0xffL );
@@ -814,18 +863,23 @@ void pbsFlush( BlockData *bd )
    len = bd->bsBufferLength;
    for (i=0; i<len; i++) {
       bsPutUChar( bd->bsBuffer[i] );
+      //std::cerr << "." << (int)bd->bsBuffer[i] << endl;
    }
    bd->bsBufferLength = 0;
 
-   while (bd->bsLive > 8) {
+   while (bd->bsLive >= 8) {
+      //std::cerr << "." << (int)(bd->bsBuff >> 24) << endl;
       bsPutUChar( (UChar)(bd->bsBuff >> 24) );
       bd->bsBuff <<= 8;
       bd->bsLive -= 8;
       bytesOut++;
    }
 
-   bd->bsBuff >>= (32 - bd->bsLive);
-   bsW( bd->bsLive, bd->bsBuff );
+   if (bd->bsLive > 0) {
+      bd->bsBuff >>= (32 - bd->bsLive);
+      bsW( bd->bsLive, bd->bsBuff );
+   }
+   //std::cerr << "." << (int)(bd->bsBuff) << endl;
 
 }
 
@@ -1078,8 +1132,8 @@ void allocateCompressStructures ( BlockData *bd )
    /*--
      Bit string buffer
    --*/
-   bd->bsBuffer = (UChar*)malloc(sizeof(UChar) * 8);
-   bd->bsBufferSize = 8;
+   bd->bsBuffer = (UChar*)malloc(sizeof(UChar) * 1024);
+   bd->bsBufferSize = 1024;
    bd->bsBufferLength = 0;
 
    bd->bsBuff = 0;
@@ -1087,6 +1141,21 @@ void allocateCompressStructures ( BlockData *bd )
 
 }
 
+void deallocateCompressStructure( BlockData *bd )
+{
+   fprintf(stderr, "Deallocate..\n");
+   fflush(stderr);
+
+   //free(bd->block);
+   //free(bd->quadrant);
+   //free(bd->zptr);
+   //free(bd->ftab);
+   free((void*)bd->quadrant);
+   free((void*)bd->zptr);
+   free((void*)bd->ftab);
+   free((void*)bd->bsBuffer);
+   //free((void*)bd->block); //FIXME
+}
 
 /*---------------------------------------------*/
 void setDecompressStructureSizes ( Int32 newSize100k )
@@ -2728,6 +2797,22 @@ void loadAndRLEsource ( BlockData *bd, FILE* src )
 }
 
 
+BlockData* createBlockData() 
+{
+   BlockData* bd;
+   bd = (BlockData*)malloc(sizeof(BlockData));
+   fprintf(stderr, "Create new block data..\n");
+   fflush(stderr);
+   return bd;
+}
+
+void destroyBlockData( BlockData *bd )
+{
+   fprintf(stderr, "Destroy block data..\n");
+   fflush(stderr);
+   free(bd);
+}
+
 /*---------------------------------------------------*/
 /*--- Processing of complete files and streams    ---*/
 /*---------------------------------------------------*/
@@ -2768,7 +2853,17 @@ void compressStream ( FILE *stream, FILE *zStream )
 
    while (True) {
       
+      //bd = createBlockData();
       bd = (BlockData*)malloc(sizeof(BlockData));
+      if (bd == NULL) {
+         fprintf(stderr, "bd GAGAL!\n");
+         fflush(stderr);
+      }
+      //fprintf(stderr, "bd = ");
+      //fflush(stderr);
+      //std::cerr << bd << endl;
+      //fprintf(stderr, "%d\n", (int)bd);
+      //fflush(stderr);
       allocateCompressStructures(bd);
 
       blockNo++;
@@ -2807,8 +2902,23 @@ void compressStream ( FILE *stream, FILE *zStream )
       pbsPutUChar ( bd, 0x59 ); pbsPutUChar ( bd, 0x26 );
       pbsPutUChar ( bd, 0x53 ); pbsPutUChar ( bd, 0x59 );
 
+      /*
+      pbsPutUChar( bd, 29 );
+      pbsPutUChar( bd, 1 );
+      pbsPutUChar( bd, 82 );
+      */
+
+      //std::cerr << "CRC: ";
+      //std::cerr << blockCRC << endl;
+
       /*-- Now the block's CRC, so it is in a known place. --*/
       pbsPutUInt32 ( bd, blockCRC );
+
+      /*
+      pbsPutUChar( bd, 29 );
+      pbsPutUChar( bd, 3 );
+      pbsPutUChar( bd, 85 );
+      */
 
       /*-- Now a single bit indicating randomisation. --*/
       if (bd->blockRandomised) {
@@ -2819,9 +2929,22 @@ void compressStream ( FILE *stream, FILE *zStream )
       /*-- Finally, block's contents proper. --*/
       moveToFrontCodeAndSend ( bd );
 
+      /*
+      pbsPutUInt32( bd, 0xFFFFFFFF );
+      pbsPutUInt32( bd, 0xFFFFFFFF );
+      pbsPutUInt32( bd, 0xFFFFFFFF );
+      pbsPutUInt32( bd, 0xFFFFFFFF );
+      pbsPutUInt32( bd, 0xFFFFFFFF );
+      pbsPutUInt32( bd, 0xFFFFFFFF );
+      pbsPutUInt32( bd, 0x00000000 );
+      pbsPutUInt32( bd, 0xFFFFFFFF );
+      */
+
       /*== Parallel End ==*/
 
-      pbsFlush(bd);
+      pbsFlush( bd );
+      //deallocateCompressStructure( bd );
+      //destroyBlockData( bd );
 
       ERROR_IF_NOT_ZERO ( ferror(zStream) );
    }
