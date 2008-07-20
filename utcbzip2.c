@@ -693,7 +693,7 @@ int abc_def = 0;
 INLINE void bsW ( Int32 n, UInt32 v )
 {
    //cerr << abc_def++ << " " << n << " " << v << endl;
-   cerr << "";
+   cerr << ""; //FIXME
    Int32 nn;
    UInt32 vv;
    nn = n;
@@ -2818,13 +2818,120 @@ void destroyBlockData( BlockData *bd )
 /*--- Processing of complete files and streams    ---*/
 /*---------------------------------------------------*/
 
+
+int getAndCompressBlock(FILE* stream, UInt32 *combinedCRC) {
+
+   //TODO: sync 1: read shared1
+   UInt32 blockCRC;
+
+   BlockData *bd = (BlockData*)malloc(sizeof(BlockData));
+   if (bd == NULL) {
+      fprintf(stderr, "bd GAGAL!\n");
+      fflush(stderr);
+   }
+   //fprintf(stderr, "bd = ");
+   //fflush(stderr);
+   //std::cerr << bd << endl;
+   //fprintf(stderr, "%d\n", (int)bd);
+   //fflush(stderr);
+   allocateCompressStructures(bd);
+
+   //blockNo++;
+   initialiseCRC ();
+   loadAndRLEsource ( bd, stream );
+   ERROR_IF_NOT_ZERO ( ferror(stream) );
+   if (bd->last == -1) return True;
+
+   //TODO: sync 1: write shared1
+
+   blockCRC = getFinalCRC ();
+   *combinedCRC = (*combinedCRC << 1) | (*combinedCRC >> 31);
+   *combinedCRC ^= blockCRC;
+
+   /*== Parallel Begin ==*/
+
+   /*-- sort the block and establish posn of original string --*/
+   doReversibleTransformation ( bd );
+
+   /*--
+     A 6-byte block header, the value chosen arbitrarily
+     as 0x314159265359 :-).  A 32 bit value does not really
+     give a strong enough guarantee that the value will not
+     appear by chance in the compressed datastream.  Worst-case
+     probability of this event, for a 900k block, is about
+     2.0e-3 for 32 bits, 1.0e-5 for 40 bits and 4.0e-8 for 48 bits.
+     For a compressed file of size 100Gb -- about 100000 blocks --
+     only a 48-bit marker will do.  NB: normal compression/
+     decompression do *not* rely on these statistical properties.
+     They are only important when trying to recover blocks from
+     damaged files.
+   --*/
+   pbsPutUChar ( bd, 0x31 ); pbsPutUChar ( bd, 0x41 );
+   pbsPutUChar ( bd, 0x59 ); pbsPutUChar ( bd, 0x26 );
+   pbsPutUChar ( bd, 0x53 ); pbsPutUChar ( bd, 0x59 );
+
+   /*
+   pbsPutUChar( bd, 29 );
+   pbsPutUChar( bd, 1 );
+   pbsPutUChar( bd, 82 );
+   */
+
+   //std::cerr << "CRC: ";
+   //std::cerr << blockCRC << endl;
+
+   /*-- Now the block's CRC, so it is in a known place. --*/
+   pbsPutUInt32 ( bd, blockCRC );
+
+   /*
+   pbsPutUChar( bd, 29 );
+   pbsPutUChar( bd, 3 );
+   pbsPutUChar( bd, 85 );
+   */
+
+   /*-- Now a single bit indicating randomisation. --*/
+   if (bd->blockRandomised) {
+      pbsW(bd,1,1);
+   } else
+      pbsW(bd,1,0);
+
+   /*-- Finally, block's contents proper. --*/
+   moveToFrontCodeAndSend ( bd );
+
+   /*
+   pbsPutUInt32( bd, 0xFFFFFFFF );
+   pbsPutUInt32( bd, 0xFFFFFFFF );
+   pbsPutUInt32( bd, 0xFFFFFFFF );
+   pbsPutUInt32( bd, 0xFFFFFFFF );
+   pbsPutUInt32( bd, 0xFFFFFFFF );
+   pbsPutUInt32( bd, 0xFFFFFFFF );
+   pbsPutUInt32( bd, 0x00000000 );
+   pbsPutUInt32( bd, 0xFFFFFFFF );
+   */
+
+   /*== Parallel End ==*/
+
+   //TODO: sync 2: read shared2
+
+   pbsFlush( bd );
+
+
+   //TODO: sync 2: write shared2
+
+   //deallocateCompressStructure( bd );
+   //destroyBlockData( bd );
+
+   //ERROR_IF_NOT_ZERO ( ferror(zStream) );
+
+   return False;
+}
+
 /*---------------------------------------------*/
 void compressStream ( FILE *stream, FILE *zStream )
 {
    IntNative  retVal;
    UInt32     blockCRC, combinedCRC;
    Int32      blockNo;
-   BlockData *bd;
+   Bool lastBlock;
 
    blockNo  = 0;
    bytesIn  = 0;
@@ -2852,102 +2959,13 @@ void compressStream ( FILE *stream, FILE *zStream )
 
    if (verbosity >= 2) fprintf ( stderr, "\n" );
 
+   lastBlock = False;
    while (True) {
-      
-      //bd = createBlockData();
-      bd = (BlockData*)malloc(sizeof(BlockData));
-      if (bd == NULL) {
-         fprintf(stderr, "bd GAGAL!\n");
-         fflush(stderr);
+      //TODO: parallelize this
+      lastBlock = getAndCompressBlock(stream, &combinedCRC);
+      if (lastBlock) {
+         break;
       }
-      //fprintf(stderr, "bd = ");
-      //fflush(stderr);
-      //std::cerr << bd << endl;
-      //fprintf(stderr, "%d\n", (int)bd);
-      //fflush(stderr);
-      allocateCompressStructures(bd);
-
-      blockNo++;
-      initialiseCRC ();
-      loadAndRLEsource ( bd, stream );
-      ERROR_IF_NOT_ZERO ( ferror(stream) );
-      if (bd->last == -1) break;
-
-      blockCRC = getFinalCRC ();
-      combinedCRC = (combinedCRC << 1) | (combinedCRC >> 31);
-      combinedCRC ^= blockCRC;
-
-      if (verbosity >= 2)
-         fprintf ( stderr, "    block %d: crc = 0x%8x, combined CRC = 0x%8x, size = %d",
-                           blockNo, blockCRC, combinedCRC, bd->last+1 );
-
-      /*== Parallel Begin ==*/
-
-      /*-- sort the block and establish posn of original string --*/
-      doReversibleTransformation ( bd );
-
-      /*--
-        A 6-byte block header, the value chosen arbitrarily
-        as 0x314159265359 :-).  A 32 bit value does not really
-        give a strong enough guarantee that the value will not
-        appear by chance in the compressed datastream.  Worst-case
-        probability of this event, for a 900k block, is about
-        2.0e-3 for 32 bits, 1.0e-5 for 40 bits and 4.0e-8 for 48 bits.
-        For a compressed file of size 100Gb -- about 100000 blocks --
-        only a 48-bit marker will do.  NB: normal compression/
-        decompression do *not* rely on these statistical properties.
-        They are only important when trying to recover blocks from
-        damaged files.
-      --*/
-      pbsPutUChar ( bd, 0x31 ); pbsPutUChar ( bd, 0x41 );
-      pbsPutUChar ( bd, 0x59 ); pbsPutUChar ( bd, 0x26 );
-      pbsPutUChar ( bd, 0x53 ); pbsPutUChar ( bd, 0x59 );
-
-      /*
-      pbsPutUChar( bd, 29 );
-      pbsPutUChar( bd, 1 );
-      pbsPutUChar( bd, 82 );
-      */
-
-      //std::cerr << "CRC: ";
-      //std::cerr << blockCRC << endl;
-
-      /*-- Now the block's CRC, so it is in a known place. --*/
-      pbsPutUInt32 ( bd, blockCRC );
-
-      /*
-      pbsPutUChar( bd, 29 );
-      pbsPutUChar( bd, 3 );
-      pbsPutUChar( bd, 85 );
-      */
-
-      /*-- Now a single bit indicating randomisation. --*/
-      if (bd->blockRandomised) {
-         pbsW(bd,1,1); nBlocksRandomised++;
-      } else
-         pbsW(bd,1,0);
-
-      /*-- Finally, block's contents proper. --*/
-      moveToFrontCodeAndSend ( bd );
-
-      /*
-      pbsPutUInt32( bd, 0xFFFFFFFF );
-      pbsPutUInt32( bd, 0xFFFFFFFF );
-      pbsPutUInt32( bd, 0xFFFFFFFF );
-      pbsPutUInt32( bd, 0xFFFFFFFF );
-      pbsPutUInt32( bd, 0xFFFFFFFF );
-      pbsPutUInt32( bd, 0xFFFFFFFF );
-      pbsPutUInt32( bd, 0x00000000 );
-      pbsPutUInt32( bd, 0xFFFFFFFF );
-      */
-
-      /*== Parallel End ==*/
-
-      pbsFlush( bd );
-      //deallocateCompressStructure( bd );
-      //destroyBlockData( bd );
-
-      ERROR_IF_NOT_ZERO ( ferror(zStream) );
    }
 
    if (verbosity >= 2 && nBlocksRandomised > 0)
