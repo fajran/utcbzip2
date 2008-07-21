@@ -692,8 +692,6 @@ int abc_def = 0;
 /*---------------------------------------------*/
 INLINE void bsW ( Int32 n, UInt32 v )
 {
-   //cerr << abc_def++ << " " << n << " " << v << endl;
-   cerr << ""; //FIXME
    Int32 nn;
    UInt32 vv;
    nn = n;
@@ -774,43 +772,13 @@ void pbsNEEDW( BlockData *bd, Int32 nz )
    UChar *tmp;
    UInt32 newSize;
 
-   /*
-   fprintf(stderr, "pbsNEEDW: bsLive=");
-   fflush(stderr);
-   std::cerr << bd->bsLive << endl;
-   fflush(stderr);
-   */
-
    while (bd->bsLive >= 8) {                      
-      //std::cerr << "@";
       if (bd->bsBufferLength >= bd->bsBufferSize) {
          newSize = bd->bsBufferSize * 2;
-         //std::cerr << "resize old=" << bd->bsBufferSize << " new=" << newSize;
          tmp = (UChar*)realloc(bd->bsBuffer, sizeof(UChar) * newSize);
-         /*
-         if (tmp == NULL) {
-            std::cerr << " GAGAL!";
-         }
-         else {
-            std::cerr << " OK!";
-         }
-         cerr << endl;
-         */
          bd->bsBuffer = tmp;
          bd->bsBufferSize = newSize;
       }
-      //std::cerr << "~";
-
-      /*
-      fprintf(stderr, "N ");
-      fflush(stderr);
-      fprintf(stderr, "[%d] ", (int)bd);
-      fflush(stderr);
-      fprintf(stderr, "%d\n", (int)(bd->bsBuff >> 24));
-      */
-      //fprintf(stderr, "N ");
-      //fflush(stderr);
-      //std::cerr << (bd->bsBuff >> 24) << std::endl;
 
       bd->bsBuffer[bd->bsBufferLength++] = (UChar)(bd->bsBuff >> 24);
       bd->bsBuff <<= 8;                           
@@ -823,7 +791,6 @@ void pbsNEEDW( BlockData *bd, Int32 nz )
 INLINE void pbsW ( BlockData *bd, Int32 n, UInt32 v )
 {
    pbsNEEDW ( bd, n );
-   //std::cerr << "pbsW: n=" << n << " v=" << v << endl;
    bd->bsBuff |= (v << (32 - bd->bsLive - n));
    bd->bsLive += n;
 }
@@ -837,7 +804,6 @@ void pbsPutUChar ( BlockData *bd, UChar c )
 /*---------------------------------------------*/
 void pbsPutUInt32 ( BlockData *bd, UInt32 u )
 {
-   //std::cerr << "pbsPutUInt32: u=" << u << std::endl;
    pbsW ( bd, 8, (u >> 24) & 0xffL );
    pbsW ( bd, 8, (u >> 16) & 0xffL );
    pbsW ( bd, 8, (u >>  8) & 0xffL );
@@ -864,12 +830,10 @@ void pbsFlush( BlockData *bd )
    len = bd->bsBufferLength;
    for (i=0; i<len; i++) {
       bsPutUChar( bd->bsBuffer[i] );
-      //std::cerr << "." << (int)bd->bsBuffer[i] << endl;
    }
    bd->bsBufferLength = 0;
 
    while (bd->bsLive >= 8) {
-      //std::cerr << "." << (int)(bd->bsBuff >> 24) << endl;
       bsPutUChar( (UChar)(bd->bsBuff >> 24) );
       bd->bsBuff <<= 8;
       bd->bsLive -= 8;
@@ -880,7 +844,6 @@ void pbsFlush( BlockData *bd )
       bd->bsBuff >>= (32 - bd->bsLive);
       bsW( bd->bsLive, bd->bsBuff );
    }
-   //std::cerr << "." << (int)(bd->bsBuff) << endl;
 
 }
 
@@ -2829,11 +2792,6 @@ int getAndCompressBlock(FILE* stream, UInt32 *combinedCRC) {
       fprintf(stderr, "bd GAGAL!\n");
       fflush(stderr);
    }
-   //fprintf(stderr, "bd = ");
-   //fflush(stderr);
-   //std::cerr << bd << endl;
-   //fprintf(stderr, "%d\n", (int)bd);
-   //fflush(stderr);
    allocateCompressStructures(bd);
 
    //blockNo++;
@@ -2870,23 +2828,8 @@ int getAndCompressBlock(FILE* stream, UInt32 *combinedCRC) {
    pbsPutUChar ( bd, 0x59 ); pbsPutUChar ( bd, 0x26 );
    pbsPutUChar ( bd, 0x53 ); pbsPutUChar ( bd, 0x59 );
 
-   /*
-   pbsPutUChar( bd, 29 );
-   pbsPutUChar( bd, 1 );
-   pbsPutUChar( bd, 82 );
-   */
-
-   //std::cerr << "CRC: ";
-   //std::cerr << blockCRC << endl;
-
    /*-- Now the block's CRC, so it is in a known place. --*/
    pbsPutUInt32 ( bd, blockCRC );
-
-   /*
-   pbsPutUChar( bd, 29 );
-   pbsPutUChar( bd, 3 );
-   pbsPutUChar( bd, 85 );
-   */
 
    /*-- Now a single bit indicating randomisation. --*/
    if (bd->blockRandomised) {
@@ -2896,17 +2839,6 @@ int getAndCompressBlock(FILE* stream, UInt32 *combinedCRC) {
 
    /*-- Finally, block's contents proper. --*/
    moveToFrontCodeAndSend ( bd );
-
-   /*
-   pbsPutUInt32( bd, 0xFFFFFFFF );
-   pbsPutUInt32( bd, 0xFFFFFFFF );
-   pbsPutUInt32( bd, 0xFFFFFFFF );
-   pbsPutUInt32( bd, 0xFFFFFFFF );
-   pbsPutUInt32( bd, 0xFFFFFFFF );
-   pbsPutUInt32( bd, 0xFFFFFFFF );
-   pbsPutUInt32( bd, 0x00000000 );
-   pbsPutUInt32( bd, 0xFFFFFFFF );
-   */
 
    /*== Parallel End ==*/
 
