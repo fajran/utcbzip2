@@ -2782,10 +2782,19 @@ void destroyBlockData( BlockData *bd )
 /*---------------------------------------------------*/
 
 
-int getAndCompressBlock(FILE* stream, UInt32 *combinedCRC) {
+thread getAndCompressBlock(FILE* stream, shared UInt32 combinedCRC, shared Bool lastBlock) {
 
    //TODO: sync 1: read shared1
    UInt32 blockCRC;
+   UInt32 combinedCRCTmp;
+   Bool lastBlockLast;
+
+   lastBlockLast = lastBlock;
+   if (lastBlockLast) {
+      lastBlock = lastBlockLast;
+      return;
+   }
+
 
    BlockData *bd = (BlockData*)malloc(sizeof(BlockData));
    if (bd == NULL) {
@@ -2798,13 +2807,18 @@ int getAndCompressBlock(FILE* stream, UInt32 *combinedCRC) {
    initialiseCRC ();
    loadAndRLEsource ( bd, stream );
    ERROR_IF_NOT_ZERO ( ferror(stream) );
-   if (bd->last == -1) return True;
+   if (bd->last == -1) {
+      lastBlockLast = True;
+   }
+
+   lastBlock = lastBlockLast;
+   if (lastBlockLast) {
+      return;
+   }
 
    //TODO: sync 1: write shared1
 
    blockCRC = getFinalCRC ();
-   *combinedCRC = (*combinedCRC << 1) | (*combinedCRC >> 31);
-   *combinedCRC ^= blockCRC;
 
    /*== Parallel Begin ==*/
 
@@ -2844,8 +2858,13 @@ int getAndCompressBlock(FILE* stream, UInt32 *combinedCRC) {
 
    //TODO: sync 2: read shared2
 
+   combinedCRCTmp = combinedCRC;
+   
    pbsFlush( bd );
 
+   combinedCRCTmp = (combinedCRCTmp << 1) | (combinedCRCTmp >> 31);
+   combinedCRCTmp ^= blockCRC;
+   combinedCRC = combinedCRCTmp;
 
    //TODO: sync 2: write shared2
 
@@ -2854,7 +2873,6 @@ int getAndCompressBlock(FILE* stream, UInt32 *combinedCRC) {
 
    //ERROR_IF_NOT_ZERO ( ferror(zStream) );
 
-   return False;
 }
 
 /*---------------------------------------------*/
@@ -2864,6 +2882,7 @@ void compressStream ( FILE *stream, FILE *zStream )
    UInt32     blockCRC, combinedCRC;
    Int32      blockNo;
    Bool lastBlock;
+   family fid;
 
    blockNo  = 0;
    bytesIn  = 0;
@@ -2891,10 +2910,12 @@ void compressStream ( FILE *stream, FILE *zStream )
 
    if (verbosity >= 2) fprintf ( stderr, "\n" );
 
-   lastBlock = False;
    while (True) {
       //TODO: parallelize this
-      lastBlock = getAndCompressBlock(stream, &combinedCRC);
+      lastBlock = False;
+      create (fid;;0;4;1;;;) getAndCompressBlock(stream, combinedCRC, lastBlock);
+      sync(fid);
+
       if (lastBlock) {
          break;
       }
