@@ -2792,6 +2792,8 @@ thread getAndCompressBlock(FILE* stream, shared UInt32 combinedCRC, shared Bool 
    lastBlockLast = lastBlock;
    if (lastBlockLast) {
       lastBlock = lastBlockLast;
+      combinedCRCTmp = combinedCRC;
+      combinedCRC = combinedCRCTmp;
       return;
    }
 
@@ -2813,6 +2815,8 @@ thread getAndCompressBlock(FILE* stream, shared UInt32 combinedCRC, shared Bool 
 
    lastBlock = lastBlockLast;
    if (lastBlockLast) {
+      combinedCRCTmp = combinedCRC;
+      combinedCRC = combinedCRCTmp;
       return;
    }
 
@@ -2864,6 +2868,9 @@ thread getAndCompressBlock(FILE* stream, shared UInt32 combinedCRC, shared Bool 
 
    combinedCRCTmp = (combinedCRCTmp << 1) | (combinedCRCTmp >> 31);
    combinedCRCTmp ^= blockCRC;
+
+   cerr << "combined CRC: " << combinedCRCTmp << endl;
+
    combinedCRC = combinedCRCTmp;
 
    //TODO: sync 2: write shared2
